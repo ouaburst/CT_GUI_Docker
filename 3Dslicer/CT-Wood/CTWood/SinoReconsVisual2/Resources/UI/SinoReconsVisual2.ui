@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>SinoReconsVisual2</class>
+ <widget class="QMainWindow" name="SinoReconsVisual2">
+  <property name="windowTitle"><string>SinoReconsVisual2 Module</string></property>
+
+  <widget class="QWidget" name="centralwidget">
+   <!-- Main layout for centralwidget -->
+   <layout class="QVBoxLayout" name="mainLayout" stretch="1">
+    <item>
+     <widget class="QScrollArea" name="scrollArea">
+      <property name="widgetResizable"><bool>true</bool></property>
+      <widget class="QWidget" name="scrollAreaWidgetContents">
+       <!-- Content layout INSIDE the scroll area -->
+       <layout class="QVBoxLayout" name="contentsLayout" stretch="0,0,0,1">
+        
+        <!-- Section: Connection -->
+         <item>
+         <widget class="QGroupBox" name="connectionGroup">
+            <property name="title"><string>Connect to server</string></property>
+            <layout class="QGridLayout" name="connectionLayout">
+               <!-- New: Server URL field -->
+               <item row="0" column="0">
+               <widget class="QLabel" name="serverUrlLabel">
+                  <property name="text"><string>Server HOST / IP </string></property>
+               </widget>
+               </item>
+               <item row="0" column="1">
+               <widget class="QLineEdit" name="serverUrlLineEdit">
+                  <property name="placeholderText">
+                     
+                  </property>
+               </widget>
+               </item>
+
+               <!-- Existing: connect button + status -->
+               <item row="1" column="0">
+               <widget class="QPushButton" name="connectToServerButton">
+                  <property name="text"><string>Connect to Server</string></property>
+               </widget>
+               </item>
+               <item row="1" column="1">
+               <widget class="QLabel" name="statusLabel">
+                  <property name="text"><string>Status: Not connected</string></property>
+               </widget>
+               </item>
+            </layout>
+         </widget>
+         </item>
+
+ 
+        <!-- Section: Selections -->
+        <item>
+         <widget class="QGroupBox" name="selectionGroup">
+          <property name="title"><string>Selections</string></property>
+          <layout class="QFormLayout" name="selectionLayout">
+           <item row="0" column="0"><widget class="QLabel"><property name="text"><string>Select Container</string></property></widget></item>
+           <item row="0" column="1"><widget class="QComboBox" name="containerSelectorComboBox"/></item>
+
+           <item row="1" column="0"><widget class="QLabel"><property name="text"><string>Select Volume</string></property></widget></item>
+           <item row="1" column="1"><widget class="QComboBox" name="volumeSelectorComboBox"/></item>
+
+           <item row="2" column="0"><widget class="QLabel"><property name="text"><string>Select Sample</string></property></widget></item>
+           <item row="2" column="1"><widget class="QComboBox" name="sampleSelectorComboBox"/></item>
+
+           <item row="3" column="0"><widget class="QLabel"><property name="text"><string>Select Reconstruction</string></property></widget></item>
+           <item row="3" column="1"><widget class="QComboBox" name="reconstructionSelectorComboBox"/></item>
+          </layout>
+         </widget>
+        </item>
+
+        <!-- Section: FBP Parameters -->
+        <item>
+         <widget class="QGroupBox" name="fbpParameterGroupBox">
+          <property name="title"><string>FBP Parameters</string></property>
+          <layout class="QGridLayout" name="fbpLayout">
+           <item row="0" column="0"><widget class="QLabel" name="label_filterType"><property name="text"><string>Filter Type:</string></property></widget></item>
+           <item row="0" column="1"><widget class="QComboBox" name="filterTypeComboBox"/></item>
+
+           <item row="1" column="0"><widget class="QLabel" name="label_frequencyScaling"><property name="text"><string>Frequency Scaling:</string></property></widget></item>
+           <item row="1" column="1"><widget class="QDoubleSpinBox" name="frequencyScalingSpinBox"/></item>
+
+           <item row="2" column="0" colspan="2"><widget class="QCheckBox" name="paddingCheckBox"><property name="text"><string>Enable Padding</string></property></widget></item>
+          </layout>
+         </widget>
+        </item>
+
+        <!-- Section: Landweber Parameters -->
+        <item>
+         <widget class="QGroupBox" name="landweberParameterGroupBox">
+          <property name="title"><string>Landweber Parameters</string></property>
+          <layout class="QGridLayout" name="lwLayout">
+           <item row="0" column="0"><widget class="QLabel" name="label_iterations"><property name="text"><string>Iterations:</string></property></widget></item>
+           <item row="0" column="1"><widget class="QSpinBox" name="iterationsSpinBox"/></item>
+           <item row="1" column="0"><widget class="QLabel" name="label_relaxation"><property name="text"><string>Relaxation:</string></property></widget></item>
+           <item row="1" column="1"><widget class="QDoubleSpinBox" name="relaxationSpinBox"/></item>
+          </layout>
+         </widget>
+        </item>
+
+        <!-- Section: Remote Actions -->
+        <item>
+         <widget class="QGroupBox" name="remoteActionsGroup">
+          <property name="title"><string>Remote action</string></property>
+          <layout class="QGridLayout" name="remoteLayout">
+           <item row="0" column="0"><widget class="QPushButton" name="executeRemoteCommandButton"><property name="text"><string>Send Reconstruction Command</string></property></widget></item>
+           <item row="0" column="1"><widget class="QPushButton" name="streamNrrdButton"><property name="text"><string>Load Remote Recons (NRRD)</string></property></widget></item>
+           <item row="1" column="0"><widget class="QPushButton" name="loadSourceTrajectoryButton"><property name="text"><string>Load Remote Trajectories (VTP)</string></property></widget></item>
+          </layout>
+         </widget>
+        </item>
+
+        <!-- Section: Navigation -->
+        <item>
+         <widget class="QGroupBox" name="navigationGroup">
+          <property name="title"><string>Navigation</string></property>
+          <layout class="QGridLayout" name="navLayout">
+           <item row="0" column="0"><widget class="QPushButton" name="fetchSinogramButton"><property name="text"><string>Fetch Sinogram Slice</string></property></widget></item>
+           <item row="1" column="0"><widget class="QPushButton" name="loadFullDatasetButton"><property name="text"><string>Load Full Dataset</string></property></widget></item>
+           <item row="2" column="0"><widget class="QSlider" name="indexSlider"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="minimum"><number>0</number></property><property name="maximum"><number>0</number></property></widget></item>
+           <item row="2" column="1"><widget class="QLabel" name="sliderIndexLabel"><property name="text"><string>Index: 0</string></property></widget></item>
+          </layout>
+         </widget>
+        </item>
+
+        <!-- Spacer to ensure content is taller than viewport -->
+        <item>
+         <spacer name="verticalSpacer">
+          <property name="orientation"><enum>Qt::Vertical</enum></property>
+          <property name="sizeHint"><size><width>20</width><height>40</height></size></property>
+         </spacer>
+        </item>
+
+       </layout>
+      </widget> <!-- scrollAreaWidgetContents -->
+     </widget> <!-- scrollArea -->
+    </item>
+   </layout>
+  </widget> <!-- centralwidget -->
+
+  <widget class="QMenuBar" name="menubar"/>
+  <widget class="QStatusBar" name="statusbar"/>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

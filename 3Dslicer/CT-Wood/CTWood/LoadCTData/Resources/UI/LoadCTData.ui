@@ -1,0 +1,352 @@
+<?xml version="1.0"?>
+<ui version="4.0">
+ <class>LoadCTData</class>
+ <widget class="QWidget" name="LoadCTData">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>400</width>
+    <height>400</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <widget class="QGroupBox" name="inputVolumeGroupBox">
+     <property name="title">
+      <string>Input Volume</string>
+     </property>
+     <layout class="QFormLayout" name="formLayout">
+      <item row="0" column="0">
+       <widget class="qMRMLNodeComboBox" name="inputVolumeSelector">
+        <property name="nodeTypes">
+         <stringlist>
+          <string>vtkMRMLScalarVolumeNode</string>
+         </stringlist>
+        </property>
+        <property name="selectNodeUponCreation">
+         <bool>true</bool>
+        </property>
+        <property name="noneEnabled">
+         <bool>false</bool>
+        </property>
+        <property name="addEnabled">
+         <bool>true</bool>
+        </property>
+        <property name="removeEnabled">
+         <bool>true</bool>
+        </property>
+        <property name="showHidden">
+         <bool>false</bool>
+        </property>
+        <property name="showChildNodeTypes">
+         <bool>false</bool>
+        </property>
+        <property name="editEnabled">
+         <bool>false</bool>
+        </property>
+        <property name="renameEnabled">
+         <bool>true</bool>
+        </property>
+        <property name="toolTip">
+         <string>Select the input volume node</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QPushButton" name="LoadCTDataButton">
+        <property name="text">
+         <string>Load CT Data</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="outputVolumeGroupBox">
+     <property name="title">
+      <string>Output Volume</string>
+     </property>
+     <layout class="QFormLayout" name="formLayout1">
+      <item row="0" column="0">
+       <widget class="qMRMLNodeComboBox" name="outputVolumeSelector">
+        <property name="nodeTypes">
+         <stringlist>
+          <string>vtkMRMLScalarVolumeNode</string>
+         </stringlist>
+        </property>
+        <property name="selectNodeUponCreation">
+         <bool>true</bool>
+        </property>
+        <property name="noneEnabled">
+         <bool>false</bool>
+        </property>
+        <property name="addEnabled">
+         <bool>true</bool>
+        </property>
+        <property name="removeEnabled">
+         <bool>true</bool>
+        </property>
+        <property name="showHidden">
+         <bool>false</bool>
+        </property>
+        <property name="showChildNodeTypes">
+         <bool>false</bool>
+        </property>
+        <property name="editEnabled">
+         <bool>false</bool>
+        </property>
+        <property name="renameEnabled">
+         <bool>true</bool>
+        </property>
+        <property name="toolTip">
+         <string>Select the output volume node</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="rotationGroupBox">
+     <property name="title">
+      <string>Rotation</string>
+     </property>
+     <layout class="QFormLayout" name="formLayout2">
+      <item row="0" column="0">
+       <widget class="QSpinBox" name="rotationAngleSpinBox">
+        <property name="maximum">
+         <number>360</number>
+        </property>
+        <property name="suffix">
+         <string> °</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <layout class="QHBoxLayout" name="rotationXLayout">
+        <item>
+         <widget class="QPushButton" name="rotateXLeftButton">
+          <property name="text">
+           <string>&lt;</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="rotateXLabel">
+          <property name="text">
+           <string>Rotate around X</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="rotateXRightButton">
+          <property name="text">
+           <string>&gt;</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="rotateXValueLabel">
+          <property name="text">
+           <string>0°</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item row="2" column="0">
+       <layout class="QHBoxLayout" name="rotationYLayout">
+        <item>
+         <widget class="QPushButton" name="rotateYLeftButton">
+          <property name="text">
+           <string>&lt;</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="rotateYLabel">
+          <property name="text">
+           <string>Rotate around Y</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="rotateYRightButton">
+          <property name="text">
+           <string>&gt;</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="rotateYValueLabel">
+          <property name="text">
+           <string>0°</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item row="3" column="0">
+       <layout class="QHBoxLayout" name="rotationZLayout">
+        <item>
+         <widget class="QPushButton" name="rotateZLeftButton">
+          <property name="text">
+           <string>&lt;</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="rotateZLabel">
+          <property name="text">
+           <string>Rotate around Z</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="rotateZRightButton">
+          <property name="text">
+           <string>&gt;</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="rotateZValueLabel">
+          <property name="text">
+           <string>0°</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="translationGroupBox">
+     <property name="title">
+      <string>Translation</string>
+     </property>
+     <layout class="QFormLayout" name="formLayout3">
+      <item row="0" column="0">
+       <widget class="QSpinBox" name="translationDistanceSpinBox">
+        <property name="maximum">
+         <number>1000</number>
+        </property>
+        <property name="suffix">
+         <string> mm</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <layout class="QHBoxLayout" name="translationXLayout">
+        <item>
+         <widget class="QPushButton" name="translateXLeftButton">
+          <property name="text">
+           <string>&lt;</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="translateXLabel">
+          <property name="text">
+           <string>Translate along X</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="translateXRightButton">
+          <property name="text">
+           <string>&gt;</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="translateXValueLabel">
+          <property name="text">
+           <string>0 mm</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item row="2" column="0">
+       <layout class="QHBoxLayout" name="translationYLayout">
+        <item>
+         <widget class="QPushButton" name="translateYLeftButton">
+          <property name="text">
+           <string>&lt;</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="translateYLabel">
+          <property name="text">
+           <string>Translate along Y</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="translateYRightButton">
+          <property name="text">
+           <string>&gt;</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="translateYValueLabel">
+          <property name="text">
+           <string>0 mm</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item row="3" column="0">
+       <layout class="QHBoxLayout" name="translationZLayout">
+        <item>
+         <widget class="QPushButton" name="translateZLeftButton">
+          <property name="text">
+           <string>&lt;</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="translateZLabel">
+          <property name="text">
+           <string>Translate along Z</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="translateZRightButton">
+          <property name="text">
+           <string>&gt;</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="translateZValueLabel">
+          <property name="text">
+           <string>0 mm</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="applyButton">
+     <property name="text">
+      <string>Apply</string>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

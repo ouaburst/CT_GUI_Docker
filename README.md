@@ -7,6 +7,8 @@ Built on **ODL** (custom ASTRA curved branch), **ASTRA Toolbox (curved geometry)
 
 ---
 
+![Pipeline Architecture: 3D Slicer with FastAPI Streaming and Reconstruction Server](Pipeline_Architecture.jpg)
+
 ## Repository Structure
 
     .
@@ -17,16 +19,54 @@ Built on **ODL** (custom ASTRA curved branch), **ASTRA Toolbox (curved geometry)
     ├── Dockerfile               # The dockerfile    
     └── README.md
 
+## Functionality Summary — odl_stream_server.py
+
+-   Starts a **FastAPI server** for CT streaming and reconstruction.
+-   **Loads CT sample data** (sinogram, angles, shifts, metadata) from the MITO dataset.
+-   **Builds ODL cone-beam geometry** for the scan (source, detector, curvature, pitch).
+-   Provides **API endpoints** to:
+    -   /stream_window → stream geometry and detector panels for visualization.
+    -   /get_sinogram_slice/{index} → return a single projection as NRRD.
+    -   /full_geometry and /full_trajectory.json → serve precomputed geometry and source paths.
+    -   /select_sample → switch dataset (tree/disk).
+    -   /run_reconstruction → execute reconstruction.py with chosen method (adjoint, FBP, Landweber).
+
+-   **Saves outputs** (VTP, JSON, NRRD) to output/ and images/ directories.
+-   Used by **3D Slicer** as a backend to visualize and reconstruct CT data dynamically.
+
+## Functionality Summary — reconstruction.py
+
+-   Reconstructs a **3D CT volume** from the **MITO dataset** for a specified tree and disk.
+
+-   Supports **three reconstruction methods**:
+
+    -   adjoint → simple backprojection (Aᵗb)
+
+    -   fbp → filtered backprojection using ODL's fbp_op
+
+    -   landweber → iterative gradient-based reconstruction (x ← x + ωAᵗ(b-Ax))
+
+-   Accepts parameters such as number of iterations (niter) and relaxation factor (omega) via JSON.
+
+-   Provides **verbose progress logging**, including iteration percentage for Landweber.
+
+-   Optionally writes **progress updates to a JSONL file** (--progress_path).
+
+-   Loads geometry and sinogram data from the **MITO dataset** via the dataset.MITO class.
+
+-   Saves the reconstructed 3D volume as an **NRRD file** with correct voxel spacing metadata.
+
+-   Designed for **integration with the FastAPI server** (odl_stream_server.py) to enable remote or containerized reconstruction.
+
 ## MITO Dataset Layout
 
 Expected per-sample directory (bind-mounted read-only into the container):
 
-    <volume_root>/real_datasets/ml_ready/<tree_ID><disk_ID>/
-    ├─ sinogram.npy            # shape (N, DET_NPX_X, DET_NPX_Z)
-    ├─ angles.npy              # shape (N,)
-    ├─ axial_positions.npy     # shape (N,)
-    ├─ shifts.npy              # shape (N, 3)  # per-view (dx, dy, dz)
-    └─ metadata.json           # geometry + reconstruction grid
+    ├─ sinogram.npy            
+    ├─ angles.npy              
+    ├─ axial_positions.npy     
+    ├─ shifts.npy              
+    └─ metadata.json           
 
 ## Docker (CUDA 11.3 + cuDNN8)
 

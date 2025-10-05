@@ -7,6 +7,12 @@ Built on **ODL** (custom ASTRA curved branch), **ASTRA Toolbox (curved geometry)
 
 ---
 
+## Project Status
+
+This repository is under active development — features, modules, and interfaces are continuously being updated and improved. Expect frequent changes and ongoing refinements.
+
+## Architecture description
+
 ![Pipeline Architecture: 3D Slicer with FastAPI Streaming and Reconstruction Server](Pipeline_Architecture.jpg)
 
 ## Repository Structure

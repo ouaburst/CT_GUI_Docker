@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, Query, Request, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -13,6 +13,10 @@ import nrrd
 import subprocess
 import argparse
 import runpy
+import gzip
+import time
+import PIL
+from PIL import Image
 
 
 # #######################################################
@@ -37,7 +41,7 @@ geometry = None          # ODL ConeBeamGeometry constructed from dataset
 N = 0                    # number of projections
 pix_size_det = 0.0       # detector pixel size (mm)
 cached_full_trajectory = None  # list of 3D source positions for all indices
-
+sample_name = Path()
 
 # ---------------------------
 # Paths
@@ -53,6 +57,9 @@ IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 CONFIG_PATH = BASE_DIR / "slicer_backend_config.json"
 FULL_GEOM_JSON = OUTPUT_DIR / "full_geometry.json"
 TRAJECTORY_JSON = OUTPUT_DIR / "full_trajectory.json"
+
+SINOGRAM_CACHE_DIR = OUTPUT_DIR / "sinogram_cache"
+
 
 
 #########################################################
@@ -140,7 +147,7 @@ def _load_sample_data(sample_dir: Path):
     with open(sample_dir / "metadata.json") as f:
         metadata = json.load(f)
 
-    print(f"[INFO] Sinogram loaded with shape {sinogram.shape}")
+    print(f"[INFO] Sinogram loaded with shape {sinogram.shape} and dtype {sinogram.dtype}")
 
     # Apply z correction (accounting for any per-view shift in z)
     z_corrected = z_raw + shifts_raw[:, 2]
@@ -496,7 +503,7 @@ def full_dataset():
 @app.on_event("startup")
 def generate_full_geometry():
     """Load config + default sample, then write output/full_geometry.json and cache trajectory."""
-    global cached_full_trajectory
+    global cached_full_trajectory, sample_name
 
     cfg = _load_config()
     if not cfg.get("samples"):
@@ -504,9 +511,11 @@ def generate_full_geometry():
     first = cfg["samples"][0]
     sample_dir = _resolve_sample_dir(cfg, first["specie"], int(first["tree_ID"]), int(first["disk_ID"]))
     _load_sample_data(sample_dir)
+    sample_name = f"{first['specie']}_{int(first['tree_ID'])}_{int(first['disk_ID'])}"
 
     print("[INFO] Precomputing and saving full geometry JSON to disk...")
 
+    start = time.time()
     data = {
         "sources": [],
         "detector_panels": [],
@@ -530,10 +539,36 @@ def generate_full_geometry():
     cached_full_trajectory = data["full_trajectory"]
     with open(TRAJECTORY_JSON, "w") as f:
         json.dump(cached_full_trajectory, f)
+    end = time.time()
 
+    print(f"[DEBUG] Generating geometry and trajectory took {end - start} seconds")
     print(f"[INFO] Full geometry saved to {FULL_GEOM_JSON}")
     print(f"[INFO] Full trajectory saved to {TRAJECTORY_JSON}")
 
+    if sample_name != None:
+        start = time.time()
+        print(f"[INFO] Generating sinogram cache")
+        
+        sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
+        Path.mkdir(sample_sinogram_cache_dir, parents=True, exist_ok=True)
+        for i in range(N):
+            if Path.exists(sample_sinogram_cache_dir / f"{i}.jp2") == False:
+                slice_2d = slice_2d = sinogram[i, :, :].T
+                min = np.min(slice_2d)
+                max = np.max(slice_2d)
+                img_data = np.iinfo(np.uint8).max * (slice_2d - min) / (max - min)
+                im = PIL.Image.fromarray(img_data.astype(np.uint8))
+                im.save(sample_sinogram_cache_dir / f"{i}.jp2", format="", irreversible=True, quality_mode="dB", quality_layers=[44])
+                #import os
+                #filename = sample_sinogram_cache_dir / f"{i}.jp2"
+                #print(f"{filename} {os.path.getsize(filename)}")
+
+            if i % 100 == 0:
+                print(f"{i}/{N} ({(i/N)*100:.1f}%) images processed")
+        end = time.time()
+        print(f"[INFO] Generated sinogram cache in {end - start} seconds")
+    else:
+        print(f"[WARNING] Need to select a sinogram to generate cache")
 
 #########################################################
 # get_full_geometry (route)
@@ -572,11 +607,12 @@ class SampleSelect(BaseModel):
 @app.post("/select_sample")
 def select_sample(sel: SampleSelect):
     """Switch active sample, reload arrays, and regenerate outputs."""
-    global cached_full_trajectory
+    global cached_full_trajectory, sample_name
 
     try:
         cfg = _load_config()
         sample_dir = _resolve_sample_dir(cfg, sel.specie, sel.tree_ID, sel.disk_ID)
+        sample_name = f"{sel.specie}_{sel.tree_ID}_{sel.disk_ID}"
 
         # Clean previous artifacts to avoid stale data
         for p in [FULL_GEOM_JSON, TRAJECTORY_JSON]:
@@ -615,7 +651,6 @@ def select_sample(sel: SampleSelect):
         return {"status": "ok", "sample_dir": str(sample_dir), "frames": N}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
-
 
 #########################################################
 # get_sinogram_slice (route)
@@ -665,11 +700,28 @@ def get_sinogram_slice(index: int):
     }
 
     # Write to a temporary file and return it
+    start = time.time()
     temp_file = tempfile.NamedTemporaryFile(suffix=".nrrd", delete=False)
-    nrrd.write(temp_file.name, slice_3d.astype(np.float32), header)
+    nrrd.write(temp_file.name, slice_3d.astype(np.float32, copy=False), header)
+    end = time.time()
+    print(f"[DEBUG] Writing nrrd file took: {end - start} secodns")
 
     return FileResponse(temp_file.name, media_type="application/octet-stream", filename=f"sinogram_{index}.nrrd")
 
+#########################################################
+# get_sinogram_slice_fast (route)
+# Export a single projection as a JPEG 2000 image (approx 5kb)
+#########################################################
+@app.get("/get_sinogram_slice_fast/{index}")
+def get_sinogram_slice(index: int):
+    global sample_name
+    print("[DEBUG] Requested index:", index)
+    sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
+    print("[DEBUG] Cache dir:", sample_sinogram_cache_dir)
+
+    file = f"{index}.jp2"
+
+    return FileResponse(sample_sinogram_cache_dir / file, media_type="image/jp2", filename=file)
 
 # ----- Run reconstruction inside this container (no SSH/Apptainer)
 class ReconRequest(BaseModel):

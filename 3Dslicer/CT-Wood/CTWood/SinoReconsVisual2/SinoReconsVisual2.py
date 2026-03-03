@@ -5,6 +5,17 @@ import requests
 import qt
 import slicer
 import vtk
+import time
+import io
+import PIL
+import numpy as np
+
+try:
+  import nrrd
+except ModuleNotFoundError:
+  if slicer.util.confirmOkCancelDisplay("This module requires 'pynrrd' Python package. Click OK to install it now."):
+    slicer.util.pip_install("pynrrd")
+    import nrrd
 
 from urllib.parse import urlparse
 from qt import QProgressDialog
@@ -95,19 +106,20 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
         # Connect signals to slots
         self.ui.indexSlider.valueChanged.connect(self.onIndexChanged)
+        self.ui.indexSlider.valueChanged.connect(self.onSliderChanged)
+
         self.ui.executeRemoteCommandButton.clicked.connect(self.onExecuteRemoteCommandClicked)
         self.ui.streamNrrdButton.clicked.connect(self.onStreamNrrdButtonClicked)
         self.ui.connectToServerButton.clicked.connect(self.onConnectToServerClicked)
         self.ui.reconstructionSelectorComboBox.currentTextChanged.connect(self.onReconstructionMethodChanged)
         self.ui.loadSourceTrajectoryButton.clicked.connect(self.onLoadSourceTrajectoryClicked)
         self.ui.loadFullDatasetButton.clicked.connect(self.onLoadFullDataset)
-        self.ui.indexSlider.valueChanged.connect(self.onSliderChanged)
         self.ui.fetchSinogramButton.clicked.connect(self.onFetchSinogramSliceClicked)
 
         # Slider debounce timer
         self.sliderDebounceTimer = QTimer()
         self.sliderDebounceTimer.setSingleShot(True)
-        self.sliderDebounceTimer.setInterval(300)  # milliseconds
+        self.sliderDebounceTimer.setInterval(1)  # milliseconds
         self.sliderDebounceTimer.timeout.connect(self.onFetchSinogramSliceClicked)
 
     # -----------------------------
@@ -301,6 +313,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             response.raise_for_status()
             config = response.json()
 
+            self.session = requests.Session()
+
             # Populate container/volume for completeness (from config)
             container_name = config.get("container_name", "")
             self.ui.containerSelectorComboBox.clear()
@@ -378,7 +392,10 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
     def onSliderChanged(self, value):
         self.ui.sliderIndexLabel.setText(f"Index: {value}")
-        self.updateViewFromFullDataset(value)
+        start = time.time()
+        #self.updateViewFromFullDataset(value)
+        end = time.time()
+        print(f"[DEBUG] updateViewFromFullDataset took {end - start} seconds")
 
     def printCameraDebugInfo(self, cameraNode, label=""):
         pos = cameraNode.GetPosition()
@@ -550,15 +567,18 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.clearModels()
             base = self._currentBaseUrl()
             url = f"{base}/full_geometry"
+            start = time.time()
             response = requests.get(url, timeout=300)  # Up to 5 minutes
             response.raise_for_status()
             self.fullGeometryData = response.json()
+            end = time.time()
 
             total_frames = len(self.fullGeometryData.get("sources", []))
 
             print(f"[INFO] Loaded full geometry: "
                   f"{total_frames} sources, "
-                  f"{len(self.fullGeometryData.get('detector_panels', []))} panels")
+                  f"{len(self.fullGeometryData.get('detector_panels', []))} panels "
+                  f"in {end - start} seconds")
 
             # Configure slider
             self.ui.indexSlider.setMinimum(0)
@@ -642,32 +662,81 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         if hasattr(self.ui, "windowSizeLabel"):
             self.ui.windowSizeLabel.setText(f"Index: {value}")
         self.sliderDebounceTimer.start()
+        #self.onFetchSinogramSliceClicked()
 
     def onFetchSinogramSliceClicked(self):
         try:
             index = self.currentIndex
             base = self._currentBaseUrl()
             url = f"{base}/get_sinogram_slice/{index}"
-            filename = f"sinogram_{index}.nrrd"
-            temp_path = os.path.join(slicer.app.temporaryPath, filename)
 
-            response = requests.get(url, stream=True)
-            response.raise_for_status()
-            with open(temp_path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
+            # FIXME: We can use slicer.util.addVolumeFromArray instead of writing to file.
+            # - Julius Häger 2026-03-02
+            #start = time.time()
+            #response = self.session.get(url, stream=False)
+            #end = time.time()
+            #print(f"Download took {end-start} s {len(response.content)/1000} kb")
 
-            # Use 'singleFile' option to avoid archetype warning
-            volume_node = slicer.util.loadVolume(temp_path, {'singleFile': True})
+            start = time.time()
+            response_fast = self.session.get(f"{base}/get_sinogram_slice_fast/{index}")
+            end = time.time()
+            print(f"Download (fast) took {end-start} s {len(response_fast.content)/1000} kb")
 
-            if volume_node:
+            start = time.time()
+            img = PIL.Image.open(io.BytesIO(response_fast.content))
+            img_data = np.array(img)
+            end = time.time()
+            print(f"Decoding image took {end-start} s {img.size} {img.mode} {img_data.shape} {img_data.dtype}")
+
+            start = time.time()
+            if hasattr(self, 'volume_node') and self.volume_node:
+                voxel_data = slicer.util.arrayFromVolume(self.volume_node)
+                print(f"voxel_data shape: {voxel_data.shape}")
+                voxel_data[:,:,0] = img_data
+                slicer.util.arrayFromVolumeModified(self.volume_node)
+            else:
+                self.volume_node = slicer.util.addVolumeFromArray(img_data[:, :, np.newaxis])
+            end = time.time()
+            print(f"Adding/modifying volume took: {end - start} s")
+
+            #start = time.time()
+            #with open(temp_path, "wb") as f:
+            #    f.write(response.content)
+            ## Use 'singleFile' option to avoid archetype warning
+            #volume_node = slicer.util.loadVolume(temp_path, {'singleFile': True})
+            #end = time.time()
+            #print(f"Save and load from disk took {end-start} s")
+
+            #start = time.time()
+            #bytes = io.BytesIO(response.content)
+            #header = nrrd.read_header(bytes)
+            #data = nrrd.read_data(header=header, fh=bytes)
+            #volume_node = slicer.util.addVolumeFromArray(data)
+            #end = time.time()
+            #print(f"Loading data took {end-start} s")
+
+            #img_data = np.copy(np.squeeze(data))
+            #min = np.min(img_data)
+            #max = np.max(img_data)
+            #dtype = np.uint8
+            #img_data = np.iinfo(dtype).max * (img_data - min) / (max - min)
+            #im = PIL.Image.fromarray(img_data.astype(dtype))
+            #im.save("C:/Users/juliu/Documents/SlicerCapture/test_irr44dB.jp2", irreversible=True, quality_mode="dB", quality_layers=[44])
+            
+            # FIXME: We want to display an image
+            if self.volume_node:
                 for view in ["Red", "Green", "Yellow"]:
-                    slicer.app.layoutManager().sliceWidget(view).sliceLogic().GetSliceCompositeNode().SetBackgroundVolumeID(volume_node.GetID())
+                    slicer.app.layoutManager().sliceWidget(view).sliceLogic().GetSliceCompositeNode().SetBackgroundVolumeID(self.volume_node.GetID())
                 slicer.app.layoutManager().resetSliceViews()
             else:
                 slicer.util.errorDisplay("Failed to load sinogram slice.")
+            
         except Exception as e:
-            slicer.util.errorDisplay(f"Error fetching sinogram slice: {e}")
+            self.sliderDebounceTimer.stop()
+            import traceback
+            #print(e)
+            print(traceback.format_exc())
+            #slicer.util.errorDisplay(f"Error fetching sinogram slice: {e} {traceback.format_exc()}")
 
 
 # -----------------------------

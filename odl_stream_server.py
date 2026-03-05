@@ -17,6 +17,7 @@ import gzip
 import time
 import PIL
 from PIL import Image
+import multiprocessing
 
 
 # #######################################################
@@ -549,26 +550,38 @@ def generate_full_geometry():
         start = time.time()
         print(f"[INFO] Generating sinogram cache")
         
+        #def compress_sinogram_slice(i):
+        #    if Path.exists(sample_sinogram_cache_dir / f"{i}.jp2") == False:
+        #        slice_2d = slice_2d = sinogram[i, :, :].T
+        #        min = np.min(slice_2d)
+        #        max = np.max(slice_2d)
+        #        img_data = np.iinfo(np.uint8).max * (slice_2d - min) / (max - min)
+        #        im = PIL.Image.fromarray(img_data.astype(np.uint8))
+        #        im.save(sample_sinogram_cache_dir / f"{i}.jp2", format="", irreversible=True, quality_mode="dB", quality_layers=[44])
+
         sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
         Path.mkdir(sample_sinogram_cache_dir, parents=True, exist_ok=True)
-        for i in range(N):
-            if Path.exists(sample_sinogram_cache_dir / f"{i}.jp2") == False:
-                slice_2d = slice_2d = sinogram[i, :, :].T
-                min = np.min(slice_2d)
-                max = np.max(slice_2d)
-                img_data = np.iinfo(np.uint8).max * (slice_2d - min) / (max - min)
-                im = PIL.Image.fromarray(img_data.astype(np.uint8))
-                im.save(sample_sinogram_cache_dir / f"{i}.jp2", format="", irreversible=True, quality_mode="dB", quality_layers=[44])
-                #import os
-                #filename = sample_sinogram_cache_dir / f"{i}.jp2"
-                #print(f"{filename} {os.path.getsize(filename)}")
-
-            if i % 100 == 0:
-                print(f"{i}/{N} ({(i/N)*100:.1f}%) images processed")
+        with multiprocessing.Pool(processes=24) as p:
+            p.map(compress_sinogram_slice, range(N))
+            # FIXME: Some way to report progress...?
+            p.close()
+            p.join()
         end = time.time()
         print(f"[INFO] Generated sinogram cache in {end - start} seconds")
     else:
         print(f"[WARNING] Need to select a sinogram to generate cache")
+
+def compress_sinogram_slice(i):
+    global sample_name
+    sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
+    if Path.exists(sample_sinogram_cache_dir / f"{i}.jp2") == False:
+        slice_2d = slice_2d = sinogram[i, :, :].T
+        min = np.min(slice_2d)
+        max = np.max(slice_2d)
+        img_data = np.iinfo(np.uint8).max * (slice_2d - min) / (max - min)
+        im = PIL.Image.fromarray(img_data.astype(np.uint8))
+        im.save(sample_sinogram_cache_dir / f"{i}.jp2", format="", irreversible=True, quality_mode="dB", quality_layers=[44])
+
 
 #########################################################
 # get_full_geometry (route)

@@ -8,7 +8,10 @@ import vtk
 import time
 import io
 import PIL
+import PIL.Image
 import numpy as np
+import typing
+from vtkmodules.util.numpy_support import numpy_to_vtk, vtk_to_numpy, numpy_to_vtkIdTypeArray
 
 try:
   import nrrd
@@ -24,6 +27,7 @@ from slicer.i18n import translate
 from slicer.ScriptedLoadableModule import *
 from slicer.util import VTKObservationMixin
 from qt import QTimer
+
 
 cached_full_trajectory = None
 
@@ -79,6 +83,22 @@ class SinoReconsVisual2(ScriptedLoadableModule):
         if os.path.exists(iconPath):
             self.parent.icon = qt.QIcon(iconPath)
 
+class Vtk3DSceneObjects:
+    sourceModel: slicer.vtkMRMLModelNode
+    sourceModelDisplay: slicer.vtkMRMLModelDisplayNode
+
+    fovRaysModel: slicer.vtkMRMLModelNode
+    fovRaysModelDisplay: slicer.vtkMRMLModelDisplayNode
+
+    sensorModel: slicer.vtkMRMLModelNode
+    sensorModelDisplay: slicer.vtkMRMLModelDisplayNode
+
+    trajectoryModel: slicer.vtkMRMLModelNode
+    trajectoryModelDisplay: slicer.vtkMRMLModelDisplayNode
+
+    def __init__(self):
+        pass
+        
 
 class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def __init__(self, parent=None):
@@ -116,6 +136,12 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.ui.loadFullDatasetButton.clicked.connect(self.onLoadFullDataset)
         self.ui.fetchSinogramButton.clicked.connect(self.onFetchSinogramSliceClicked)
 
+        self.ui.playButton.toggled.connect(self.playButtonToggled)
+        self.ui.playSpeedSlider.valueChanged.connect(lambda x : self.ui.playSpeedLabel.setText(f"Speed: x{x}"))
+        self.playButtonTimer = QTimer()
+        self.playButtonTimer.setInterval(10)
+        self.playButtonTimer.timeout.connect(self.advanceSinogramSlice)
+
         # Slider debounce timer
         self.sliderDebounceTimer = QTimer()
         self.sliderDebounceTimer.setSingleShot(True)
@@ -127,6 +153,14 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.fullDetailDebounceTimer.setSingleShot(True)
         self.fullDetailDebounceTimer.setInterval(500)
         self.fullDetailDebounceTimer.timeout.connect(self.loadFullDetailSlice)
+
+        # FIXME: For some reason it seems like we can't do this here
+        # because slicer.mrmlScene isn't set here or something similar.
+        # - Julius Häger 2026-03-05
+        #self.sceneObjects = self.createSceneObjects()
+
+    def cleanup(self):
+        self.destroySceneObjects()
 
     # -----------------------------
     # Utility
@@ -399,9 +433,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
     def onSliderChanged(self, value):
         self.ui.sliderIndexLabel.setText(f"Index: {value}")
         start = time.time()
-        #self.updateViewFromFullDataset(value)
+        self.updateSceneData(value)
         end = time.time()
-        print(f"[DEBUG] updateViewFromFullDataset took {end - start} seconds")
+        print(f"[DEBUG] updateSceneData took {end - start} seconds")
 
     def printCameraDebugInfo(self, cameraNode, label=""):
         pos = cameraNode.GetPosition()
@@ -420,150 +454,179 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
     # -----------------------------
     # Rendering helpers
     # -----------------------------
-    def createPointsModel(self, points, name, color=(1,1,1), pointSize=3):
-        modelNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", name)
-        points_vtk = vtk.vtkPoints()
-        for p in points:
-            points_vtk.InsertNextPoint(p)
-        polydata = vtk.vtkPolyData()
-        polydata.SetPoints(points_vtk)
-        verts = vtk.vtkCellArray()
-        for i in range(len(points)):
-            verts.InsertNextCell(1)
-            verts.InsertCellPoint(i)
-        polydata.SetVerts(verts)
-        modelNode.SetAndObservePolyData(polydata)
+    def createSceneObjects(self):
+        sceneObjects = Vtk3DSceneObjects()
 
-        displayNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
-        slicer.mrmlScene.AddNode(displayNode)
-        modelNode.SetAndObserveDisplayNodeID(displayNode.GetID())
-        displayNode.SetColor(color)
-        displayNode.SetPointSize(pointSize)
-        displayNode.SetVisibility(1)
+        sceneObjects.sourceModel = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", "Source")
+        polys = vtk.vtkPolyData()
+        polys.SetPoints(vtk.vtkPoints())
+        polys.SetVerts(vtk.vtkCellArray())
+        sceneObjects.sourceModel.SetAndObservePolyData(polys)
+        sceneObjects.sourceModelDisplay = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
+        sceneObjects.sourceModel.SetAndObserveDisplayNodeID(sceneObjects.sourceModelDisplay.GetID())
+        sceneObjects.sourceModelDisplay.SetColor((1.0, 1.0, 0.0))
+        sceneObjects.sourceModelDisplay.SetPointSize(8)
+        sceneObjects.sourceModelDisplay.SetVisibility(1)
 
-    def createQuadsModel(self, quads, name, color=(1,1,1), lineWidth=2):
-        modelNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", name)
-        points_vtk = vtk.vtkPoints()
-        polys = vtk.vtkCellArray()
-        pointIndex = 0
-        for quad in quads:
-            for p in quad:
-                points_vtk.InsertNextPoint(p)
-            cell = vtk.vtkQuad()
-            for i in range(4):
-                cell.GetPointIds().SetId(i, pointIndex + i)
-            polys.InsertNextCell(cell)
-            pointIndex += 4
-        polydata = vtk.vtkPolyData()
-        polydata.SetPoints(points_vtk)
-        polydata.SetPolys(polys)
-        modelNode.SetAndObservePolyData(polydata)
+        sceneObjects.fovRaysModel = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", "FOVRays")
+        polys = vtk.vtkPolyData()
+        polys.SetPoints(vtk.vtkPoints())
+        polys.SetLines(vtk.vtkCellArray())
+        sceneObjects.fovRaysModel.SetAndObservePolyData(polys)
+        sceneObjects.fovRaysModelDisplay = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
+        sceneObjects.fovRaysModel.SetAndObserveDisplayNodeID(sceneObjects.fovRaysModelDisplay.GetID())
+        sceneObjects.fovRaysModelDisplay.SetColor((0.0, 1.0, 0.0))
+        sceneObjects.fovRaysModelDisplay.SetLineWidth(2)
+        sceneObjects.fovRaysModelDisplay.SetVisibility(1)
 
-        displayNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
-        slicer.mrmlScene.AddNode(displayNode)
-        modelNode.SetAndObserveDisplayNodeID(displayNode.GetID())
-        displayNode.SetColor(color)
-        displayNode.SetEdgeVisibility(1)
-        displayNode.SetLineWidth(lineWidth)
-        displayNode.SetVisibility(1)
+        sceneObjects.sensorModel = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", "Detector")
+        polys = vtk.vtkPolyData()
+        polys.SetPoints(vtk.vtkPoints())
+        polys.SetPolys(vtk.vtkCellArray())
+        sceneObjects.sensorModel.SetAndObservePolyData(polys)
+        sceneObjects.sensorModelDisplay = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
+        sceneObjects.sensorModel.SetAndObserveDisplayNodeID(sceneObjects.sensorModelDisplay.GetID())
+        sceneObjects.sensorModelDisplay.SetColor((1.0, 0.5, 0.0))
+        sceneObjects.sensorModelDisplay.SetOpacity(0.7)
+        sceneObjects.sensorModelDisplay.SetLineWidth(2)
+        sceneObjects.sensorModelDisplay.SetVisibility(1)
+        sceneObjects.sensorModelDisplay.SetRepresentation(2)          # Surface
+        sceneObjects.sensorModelDisplay.SetEdgeVisibility(False)      # Hide edges
+        sceneObjects.sensorModelDisplay.SetInterpolation(1)           # Phong
+        sceneObjects.sensorModelDisplay.SetBackfaceCulling(False)     # Render both sides
 
-    def createLinesModel(self, lines, name, color=(1,1,1), lineWidth=2):
-        modelNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", name)
-        points_vtk = vtk.vtkPoints()
-        lines_vtk = vtk.vtkCellArray()
-        idx = 0
-        for p1, p2 in lines:
-            points_vtk.InsertNextPoint(p1)
-            points_vtk.InsertNextPoint(p2)
-            lines_vtk.InsertNextCell(2)
-            lines_vtk.InsertCellPoint(idx)
-            lines_vtk.InsertCellPoint(idx + 1)
-            idx += 2
-        polydata = vtk.vtkPolyData()
-        polydata.SetPoints(points_vtk)
-        polydata.SetLines(lines_vtk)
-        modelNode.SetAndObservePolyData(polydata)
+        sceneObjects.trajectoryModel = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", "Trajectory")
+        polys = vtk.vtkPolyData()
+        polys.SetPoints(vtk.vtkPoints())
+        polys.SetLines(vtk.vtkCellArray())
+        sceneObjects.trajectoryModel.SetAndObservePolyData(polys)
+        sceneObjects.trajectoryModelDisplay = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
+        sceneObjects.trajectoryModel.SetAndObserveDisplayNodeID(sceneObjects.trajectoryModelDisplay.GetID())
+        sceneObjects.trajectoryModelDisplay.SetColor((0.0, 0.4, 1.0))
+        sceneObjects.trajectoryModelDisplay.SetLineWidth(2)
+        sceneObjects.trajectoryModelDisplay.SetVisibility(1)
 
-        displayNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
-        slicer.mrmlScene.AddNode(displayNode)
-        modelNode.SetAndObserveDisplayNodeID(displayNode.GetID())
-        displayNode.SetColor(color)
-        displayNode.SetLineWidth(lineWidth)
-        displayNode.SetVisibility(1)
+        return sceneObjects
 
-    def createTrajectoryLine(self, points, name="SourceTrajectory", color=(0.0, 0.4, 1.0), lineWidth=3):
-        modelNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", name)
-        points_vtk = vtk.vtkPoints()
-        lines = vtk.vtkCellArray()
+    def destroySceneObjects(self):
+        if (hasattr(self, 'sceneObjects')) and self.sceneObjects:
+            slicer.mrmlScene.RemoveNode(self.sceneObjects.sourceModelDisplay)
+            slicer.mrmlScene.RemoveNode(self.sceneObjects.sourceModel)
+            slicer.mrmlScene.RemoveNode(self.sceneObjects.fovRaysModelDisplay)
+            slicer.mrmlScene.RemoveNode(self.sceneObjects.fovRaysModel)
+            slicer.mrmlScene.RemoveNode(self.sceneObjects.sensorModelDisplay)
+            slicer.mrmlScene.RemoveNode(self.sceneObjects.sensorModel)
+            slicer.mrmlScene.RemoveNode(self.sceneObjects.trajectoryModelDisplay)
+            slicer.mrmlScene.RemoveNode(self.sceneObjects.trajectoryModel)
+            self.sceneObjects.sourceModelDisplay = None
+            self.sceneObjects.sourceModel = None
+            self.sceneObjects.fovRaysModelDisplay = None
+            self.sceneObjects.fovRaysModel = None
+            self.sceneObjects.sensorModelDisplay = None
+            self.sceneObjects.sensorModel = None
+            self.sceneObjects.trajectoryModelDisplay = None
+            self.sceneObjects.trajectoryModel = None
 
-        for p in points:
-            points_vtk.InsertNextPoint(p)
+    def updateSceneData(self, index: int):
+        self.updateTrajectory()
+        self.updateSource(index)
+        self.updateFOVLines(index)
+        self.updateSensorGeometry(index)
 
-        line = vtk.vtkPolyLine()
-        line.GetPointIds().SetNumberOfIds(len(points))
-        for i in range(len(points)):
-            line.GetPointIds().SetId(i, i)
-        lines.InsertNextCell(line)
+    def updateTrajectory(self):
+        trajectory = np.array(self.fullGeometryData.get("full_trajectory", [])).astype(np.float32)
+        #print(f"trajectory {trajectory.shape} {trajectory.dtype} {len(trajectory)}")
+        
+        polyData : vtk.vtkPolyData = typing.cast(vtk.vtkPolyData, self.sceneObjects.trajectoryModel.GetPolyData())
 
-        polydata = vtk.vtkPolyData()
-        polydata.SetPoints(points_vtk)
-        polydata.SetLines(lines)
-        modelNode.SetAndObservePolyData(polydata)
+        points = typing.cast(vtk.vtkPoints, polyData.GetPoints())
+        points.SetData(numpy_to_vtk(trajectory, 1))
 
-        displayNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
-        slicer.mrmlScene.AddNode(displayNode)
-        modelNode.SetAndObserveDisplayNodeID(displayNode.GetID())
-        displayNode.SetColor(color)
-        displayNode.SetLineWidth(lineWidth)
-        displayNode.SetVisibility(1)
+        cells = polyData.GetLines()
+        idx = numpy_to_vtkIdTypeArray(np.arange(len(trajectory)), 1)
+        cells.SetData(len(trajectory), idx)
 
-    def createBezierSurfaceModel(self, curves, name="DetectorSurface", color=(1.0, 0.5, 0.0), opacity=0.7):
-        if not curves:
-            print("[WARNING] Empty curve list passed to createBezierSurfaceModel.")
+        points.Modified()
+        cells.Modified()
+        polyData.Modified()
+
+    def updateSource(self, index: int):
+        sources = self.fullGeometryData.get("sources", [])
+        source = np.array([sources[index]]).astype(np.float32)
+        #print(f"sources {source.shape} {source.dtype} {len(source)}")
+
+        polyData : vtk.vtkPolyData = typing.cast(vtk.vtkPolyData, self.sceneObjects.sourceModel.GetPolyData())
+        
+        points = typing.cast(vtk.vtkPoints, polyData.GetPoints())
+        points.SetData(numpy_to_vtk(source, 1))
+        #print(points)
+
+        cells = polyData.GetVerts()
+        idx = numpy_to_vtkIdTypeArray(np.arange(len(source)), 1)
+        cells.SetData(len(source), idx)
+        #print(cells)
+
+        points.Modified()
+        cells.Modified()
+        polyData.Modified()
+        #print(polyData)
+
+    def updateFOVLines(self, index: int):
+        rays = self.fullGeometryData.get("fov_rays", [])
+        rays = np.array(rays[index])
+        if rays.shape[-1] != 3 or rays.shape[-2] != 2:
+            print(f"[ERROR] fov_rays had the wrong shape {rays.shape}, expected (N, 2, 3).")
             return
+        
+        polyData : vtk.vtkPolyData = typing.cast(vtk.vtkPolyData, self.sceneObjects.fovRaysModel.GetPolyData())
+        
+        points = typing.cast(vtk.vtkPoints, polyData.GetPoints())
+        points.SetData(numpy_to_vtk(np.array(rays).reshape(len(rays)*2, 3), 1))
+        #print(points)
+
+        cells = polyData.GetLines()
+        cells.SetData(2, numpy_to_vtkIdTypeArray(np.arange(len(rays)*2), 1))
+        #print(cells)
+
+        points.Modified()
+        cells.Modified()
+        polyData.Modified()
+
+    def updateSensorGeometry(self, index: int):
+        bezier_curves = self.fullGeometryData.get("bezier_curves", [])
+        curves = np.array(bezier_curves[index])
 
         num_rows = len(curves)
         num_cols = len(curves[0])
         if any(len(row) != num_cols for row in curves):
             print("[ERROR] Inconsistent number of points per curve row.")
             return
-
-        modelNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", name)
-        points_vtk = vtk.vtkPoints()
-        polys = vtk.vtkCellArray()
-
-        for row in curves:
-            for pt in row:
-                points_vtk.InsertNextPoint(pt)
-
-        def idx(i, j):
+        #print(f"sensor {num_rows} {num_cols} {curves.shape}")
+        
+        def idx(i: int, j: int):
             return i * num_cols + j
 
+        indices = np.zeros((num_rows - 1, num_cols - 1, 4), dtype=np.int64)
         for i in range(num_rows - 1):
             for j in range(num_cols - 1):
-                quad = vtk.vtkQuad()
-                quad.GetPointIds().SetId(0, idx(i, j))
-                quad.GetPointIds().SetId(1, idx(i, j + 1))
-                quad.GetPointIds().SetId(2, idx(i + 1, j + 1))
-                quad.GetPointIds().SetId(3, idx(i + 1, j))
-                polys.InsertNextCell(quad)
+                indices[i, j, 0] = idx(i, j)
+                indices[i, j, 1] = idx(i, j + 1)
+                indices[i, j, 2] = idx(i + 1, j + 1)
+                indices[i, j, 3] = idx(i + 1, j)
 
-        polydata = vtk.vtkPolyData()
-        polydata.SetPoints(points_vtk)
-        polydata.SetPolys(polys)
-        modelNode.SetAndObservePolyData(polydata)
+        polyData : vtk.vtkPolyData = typing.cast(vtk.vtkPolyData, self.sceneObjects.sensorModel.GetPolyData())
+        
+        points = typing.cast(vtk.vtkPoints, polyData.GetPoints())
+        points.SetData(numpy_to_vtk(curves.reshape(num_rows * num_cols, 3), 1))
+        #print(points)
 
-        displayNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
-        slicer.mrmlScene.AddNode(displayNode)
-        modelNode.SetAndObserveDisplayNodeID(displayNode.GetID())
+        cells = polyData.GetPolys()
+        cells.SetData(4, numpy_to_vtkIdTypeArray(np.ravel(indices), 1))
+        #print(cells)
 
-        displayNode.SetColor(color)
-        displayNode.SetOpacity(opacity)
-        displayNode.SetVisibility(1)
-        displayNode.SetRepresentation(2)          # Surface
-        displayNode.SetEdgeVisibility(False)      # Hide edges
-        displayNode.SetInterpolation(1)           # Phong
-        displayNode.SetBackfaceCulling(False)     # Render both sides
+        points.Modified()
+        cells.Modified()
+        polyData.Modified()
 
     # -----------------------------
     # Full dataset workflow
@@ -593,62 +656,11 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.ui.sliderIndexLabel.setText("Index: 0")
 
             # Load first frame
-            self.updateViewFromFullDataset(0)
+            self.sceneObjects = self.createSceneObjects()
+            self.updateSceneData(0)
 
         except Exception as e:
             slicer.util.errorDisplay(f"Failed to load full dataset:\n{e}")
-
-    def updateViewFromFullDataset(self, index):
-        if not hasattr(self, "fullGeometryData"):
-            slicer.util.errorDisplay("Geometry data not loaded. Call onLoadFullDataset first.")
-            return
-
-        try:
-            sources = self.fullGeometryData.get("sources", [])
-            rays = self.fullGeometryData.get("fov_rays", [])
-            trajectory = self.fullGeometryData.get("full_trajectory", [])
-            bezier_curves = self.fullGeometryData.get("bezier_curves", [])
-
-            total_frames = len(sources)
-            if index < 0 or index >= total_frames:
-                slicer.util.errorDisplay(f"Index {index} is out of bounds (max: {total_frames - 1}).")
-                return
-
-            self.clearModels()
-
-            # Source point
-            source = [sources[index]]
-            self.createPointsModel(source, "Source", (0.2, 0.6, 1.0), 4)
-
-            # Bézier surface
-            if index < len(bezier_curves):
-                bezier = bezier_curves[index]
-                self.createBezierSurfaceModel(bezier, "DetectorBezier", (1.0, 0.5, 0.0), 0.7)
-            else:
-                print(f"[WARNING] Missing Bézier surface at index {index}")
-
-            # FOV rays
-            raw_rays = rays[index] if index < len(rays) else []
-            ray_set = []
-            for item in raw_rays:
-                if isinstance(item, list) and len(item) == 2:
-                    p1, p2 = item
-                    ray_set.append((p1, p2))
-                else:
-                    print(f"[WARNING] Skipping malformed ray at index {index}: {item}")
-            self.createLinesModel(ray_set, "FOVRays", (0.0, 1.0, 0.0), 2)
-
-            # Trajectory line (only once)
-            if index == 0 and trajectory:
-                self.createTrajectoryLine(trajectory, "SourceTrajectory", (0.0, 0.4, 1.0), 2)
-
-            # Update label
-            self.currentIndex = index
-            self.ui.sliderIndexLabel.setText(f"Index: {index}")
-            print(f"[DEBUG] Rendering index {index} with {len(ray_set)} rays.")
-
-        except Exception as e:
-            slicer.util.errorDisplay(f"Failed to update frame {index}:\n{e}")
 
     # -----------------------------
     # Slider / sinogram fetch
@@ -656,12 +668,12 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
     def onIncreaseWindow(self):
         self.currentIndex += 20
         if hasattr(self, "fullGeometryData"):
-            self.updateViewFromFullDataset(self.currentIndex)
+            self.updateSceneData(self.currentIndex)
 
     def onDecreaseWindow(self):
         self.currentIndex = max(0, self.currentIndex - 20)
         if hasattr(self, "fullGeometryData"):
-            self.updateViewFromFullDataset(self.currentIndex)
+            self.updateSceneData(self.currentIndex)
 
     def onIndexChanged(self, value):
         self.currentIndex = value
@@ -679,25 +691,25 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             start = time.time()
             response_fast = self.session.get(f"{base}/get_sinogram_slice_fast/{index}")
             end = time.time()
-            print(f"Download (fast) took {end-start} s {len(response_fast.content)/1000} kb")
+            print(f"[DEBUG] Download (fast) took {end-start} s {len(response_fast.content)/1000} kb")
 
             start = time.time()
             img = PIL.Image.open(io.BytesIO(response_fast.content))
             img_data = np.array(img)
             end = time.time()
-            print(f"Decoding image took {end-start} s {img.size} {img.mode} {img_data.shape} {img_data.dtype}")
+            print(f"[DEBUG] Decoding image took {end-start} s {img.size} {img.mode} {img_data.shape} {img_data.dtype}")
 
             start = time.time()
             if hasattr(self, 'volume_node') and self.volume_node:
                 voxel_data = slicer.util.arrayFromVolume(self.volume_node)
-                print(f"voxel_data shape: {voxel_data.shape}")
+                #print(f"voxel_data shape: {voxel_data.shape}")
                 voxel_data[:,:,0] = img_data
                 slicer.util.arrayFromVolumeModified(self.volume_node)
             else:
                 self.volume_node = slicer.util.addVolumeFromArray(img_data[:, :, np.newaxis])
                 self.volume_node.name = f"Preview sinogram"
             end = time.time()
-            print(f"Adding/modifying volume took: {end - start} s")
+            print(f"[DEBUG] Adding/modifying volume took: {end - start} s")
 
             if self.volume_node:
                 for view in ["Red", "Green", "Yellow"]:
@@ -752,6 +764,17 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         except Exception as e:
             import traceback
             print(traceback.format_exc())
+
+    def playButtonToggled(self, checked):
+        if checked:
+            self.playButtonTimer.start()
+            self.ui.playButton.text = "Stop"
+        else:
+            self.playButtonTimer.stop()
+            self.ui.playButton.text = "Play"
+
+    def advanceSinogramSlice(self):
+        self.ui.indexSlider.value += int(self.ui.playSpeedSlider.value)
 
 # -----------------------------
 # HTTP helpers (use saved base URL)

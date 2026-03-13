@@ -6,7 +6,6 @@ from pathlib import Path
 import numpy as np
 import json
 import odl
-import pyvista as pv
 from scipy.interpolate import interp1d
 import tempfile
 import nrrd
@@ -16,9 +15,9 @@ import runpy
 import gzip
 import time
 import PIL
-from PIL import Image
+import PIL.Image
 import multiprocessing
-
+import typing
 
 # #######################################################
 # Run:
@@ -29,20 +28,19 @@ import multiprocessing
 # - It can also run reconstructions by invoking reconstruction.py
 # #######################################################
 
-
 # ---------------------------
 # Globals (populated on load)
 # ---------------------------
-sinogram = None          # numpy array with shape (N, det_x, det_z)
+sinogram: np.typing.NDArray[np.float32]   # numpy array with shape (N, det_x, det_z)
 angles = None            # raw angles array (not directly used after sort)
 z_positions = None       # raw axial positions (not directly used after correction)
 shifts = None            # per-projection shifts (x,y,z)
-metadata = None          # dict with geometry + reconstruction grid settings
-geometry = None          # ODL ConeBeamGeometry constructed from dataset
+metadata: dict           # dict with geometry + reconstruction grid settings
+geometry: odl.tomo.ConeBeamGeometry # ODL ConeBeamGeometry constructed from dataset
 N = 0                    # number of projections
 pix_size_det = 0.0       # detector pixel size (mm)
 cached_full_trajectory = None  # list of 3D source positions for all indices
-sample_name = Path()
+sample_name: str
 
 # ---------------------------
 # Paths
@@ -181,7 +179,7 @@ def _load_sample_data(sample_dir: Path):
     # Keep an angle→z interpolation (currently not plugged into src_shift_func)
     _ = interp1d(
         angles_sorted, z_sorted, kind="linear",
-        bounds_error=False, fill_value=(z_sorted[0], z_sorted[-1])
+        bounds_error=False, fill_value=(z_sorted[0], z_sorted[-1]) # type: ignore The function has a special case for fill_value being a 2-tuple.
     )
 
     # Build helical cone-beam geometry; det_curvature_radius[0] is tangential curvature
@@ -191,7 +189,7 @@ def _load_sample_data(sample_dir: Path):
         src_radius=metadata["SRC_RADIUS"],
         det_radius=metadata["DET_RADIUS"],
         det_curvature_radius=[metadata["DET_CURVATURE_RADIUS"], None],
-        pitch=pitch,
+        pitch=pitch, # type: ignore The argument is a float, the function annotation is wrong.
         axis=[0, 0, 1],
         src_shift_func=None,     # could be set to a function of angle if needed
         translation=[0, 0, 0],
@@ -239,7 +237,7 @@ def get_bezier_surface_points(i, num_u=8, num_v=4):
     control_points = np.array(control_points)  # (3, 3, 3)
 
     # Local helper: 1D quadratic Bézier interpolation for 3 control pts
-    def bezier_interp_1d(ctrl, t):
+    def bezier_interp_1d(ctrl, t: float):
         return (1 - t) ** 2 * ctrl[0] + 2 * (1 - t) * t * ctrl[1] + t ** 2 * ctrl[2]
 
     # Sample u (tangential) and v (vertical)
@@ -247,17 +245,23 @@ def get_bezier_surface_points(i, num_u=8, num_v=4):
     v_vals = np.linspace(0, 1, num_v)
 
     # Interpolate a dense surface by Bézier in u then v
-    surface_points = []
+    surface_points :list[list[float]] = []
+    surface_uvs : list[list[float]] = []
+    v: np.float64
+    u: np.float64
     for v in v_vals:
         row = []
-        interm_rows = [None, None, None]
+        row_uv = []
         for u in u_vals:
+            interm_rows = [None, None, None]
             for r in range(3):
                 interm_rows[r] = bezier_interp_1d(control_points[r], u)
             pt = bezier_interp_1d(np.array(interm_rows), v)
             row.append(pt.tolist())
+            row_uv.append([u, v])
         surface_points.append(row)
-    return surface_points  # (num_v, num_u, 3)
+        surface_uvs.append(row_uv)
+    return surface_points, surface_uvs  # (num_v, num_u, 3), (num_v, num_u, 2)
 
 
 #########################################################
@@ -313,53 +317,6 @@ def get_geometry_at(i, nx=20, nz=2):
         rays = [[src.tolist(), c] for c in corners]
 
     return src.tolist(), detector_mesh, rays
-
-
-# ----------------------------------
-# VTP writers (kept for completeness)
-# ----------------------------------
-
-#########################################################
-# save_points_vtp
-# Save a polyline through the given list of points as VTP.
-#########################################################
-def save_points_vtp(points, filename):
-    points = np.array(points)
-    n_points = len(points)
-    lines = np.hstack([[n_points] + list(range(n_points))])
-    mesh = pv.PolyData()
-    mesh.points = points
-    mesh.lines = lines
-    mesh.save(str(filename))
-
-
-#########################################################
-# save_quads_vtp
-# Save a set of quadrilateral faces given as quads (4 vertices).
-#########################################################
-def save_quads_vtp(quads, filename):
-    mesh = pv.PolyData()
-    mesh.points = np.array([pt for quad in quads for pt in quad])
-    faces = [[4] + list(range(i * 4, i * 4 + 4)) for i in range(len(quads))]
-    mesh.faces = np.hstack(faces)
-    mesh.save(str(filename))
-
-
-#########################################################
-# save_lines_vtp
-# Save multiple independent line segments as a single VTP.
-#########################################################
-def save_lines_vtp(lines, filename):
-    mesh = pv.PolyData()
-    points = []
-    cells = []
-    for i, (p1, p2) in enumerate(lines):
-        points.extend([p1, p2])
-        cells.append([2, 2 * i, 2 * i + 1])
-    mesh.points = np.array(points)
-    mesh.lines = np.hstack(cells)
-    mesh.save(str(filename))
-
 
 # ----------------------------------
 # FastAPI app
@@ -494,6 +451,7 @@ def full_dataset():
     })
 
 
+# FIXME: Better name, this is a general startup function...
 #########################################################
 # generate_full_geometry (startup)
 # On app startup:
@@ -522,18 +480,23 @@ def generate_full_geometry():
         "detector_panels": [],
         "fov_rays": [],
         "full_trajectory": [],
-        "bezier_curves": []
+        "bezier_curves": [],
+        "bezier_curves_uvs": []
     }
 
     for i in range(N):
         src, corners, rays = get_geometry_at(i)
-        bezier = get_bezier_surface_points(i)
+        bezier, bezier_uvs = get_bezier_surface_points(i)
         data["sources"].append(src)
         data["detector_panels"].append(corners)
         data["fov_rays"].append(rays)
         data["full_trajectory"].append(src)
         data["bezier_curves"].append(bezier)
+        data["bezier_curves_uvs"].append(bezier_uvs)
+    end = time.time()
+    print(f"[DEBUG] Generating geometry and trajectory took {end - start} seconds")
 
+    start = time.time()
     with open(FULL_GEOM_JSON, "w") as f:
         json.dump(data, f)
 
@@ -541,24 +504,14 @@ def generate_full_geometry():
     with open(TRAJECTORY_JSON, "w") as f:
         json.dump(cached_full_trajectory, f)
     end = time.time()
+    print(f"[DEBUG] Saving geometry and trajectory took {end - start} seconds")
 
-    print(f"[DEBUG] Generating geometry and trajectory took {end - start} seconds")
     print(f"[INFO] Full geometry saved to {FULL_GEOM_JSON}")
     print(f"[INFO] Full trajectory saved to {TRAJECTORY_JSON}")
 
     if sample_name != None:
         start = time.time()
         print(f"[INFO] Generating sinogram cache")
-        
-        #def compress_sinogram_slice(i):
-        #    if Path.exists(sample_sinogram_cache_dir / f"{i}.jp2") == False:
-        #        slice_2d = slice_2d = sinogram[i, :, :].T
-        #        min = np.min(slice_2d)
-        #        max = np.max(slice_2d)
-        #        img_data = np.iinfo(np.uint8).max * (slice_2d - min) / (max - min)
-        #        im = PIL.Image.fromarray(img_data.astype(np.uint8))
-        #        im.save(sample_sinogram_cache_dir / f"{i}.jp2", format="", irreversible=True, quality_mode="dB", quality_layers=[44])
-
         sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
         Path.mkdir(sample_sinogram_cache_dir, parents=True, exist_ok=True)
         with multiprocessing.Pool(processes=24) as p:
@@ -581,7 +534,11 @@ def compress_sinogram_slice(i):
         img_data = np.iinfo(np.uint8).max * (slice_2d - min) / (max - min)
         im = PIL.Image.fromarray(img_data.astype(np.uint8))
         im.save(sample_sinogram_cache_dir / f"{i}.jp2", format="", irreversible=True, quality_mode="dB", quality_layers=[44])
-
+        #im.save(sample_sinogram_cache_dir / f"{i}.avif", format="", max_threads=1, quality=57)
+        #import os
+        #jp2_size = os.path.getsize(sample_sinogram_cache_dir / f"{i}.jp2")
+        #avif_size = os.path.getsize(sample_sinogram_cache_dir / f"{i}.avif")
+        #print(f"{i} jp2: {jp2_size}b, avif: {avif_size}b, {(avif_size / jp2_size)*100}%")
 
 #########################################################
 # get_full_geometry (route)
@@ -726,15 +683,17 @@ def get_sinogram_slice(index: int):
 # Export a single projection as a JPEG 2000 image (approx 5kb)
 #########################################################
 @app.get("/get_sinogram_slice_fast/{index}")
-def get_sinogram_slice(index: int):
+def get_sinogram_slice_fast(index: int):
     global sample_name
     print("[DEBUG] Requested index:", index)
     sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
     print("[DEBUG] Cache dir:", sample_sinogram_cache_dir)
 
     file = f"{index}.jp2"
-
     return FileResponse(sample_sinogram_cache_dir / file, media_type="image/jp2", filename=file)
+    
+    #file = f"{index}.avif"
+    #return FileResponse(sample_sinogram_cache_dir / file, media_type="image/avif", filename=file)
 
 # ----- Run reconstruction inside this container (no SSH/Apptainer)
 class ReconRequest(BaseModel):

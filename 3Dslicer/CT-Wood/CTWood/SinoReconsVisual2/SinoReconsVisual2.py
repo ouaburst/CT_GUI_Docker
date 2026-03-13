@@ -7,11 +7,16 @@ import slicer
 import vtk
 import time
 import io
+# This is needed for avif support in pillow. 
+# 3D slicer needs to be restarted for the upgrade to properly load.
+#slicer.util.pip_install("--upgrade pillow")
 import PIL
 import PIL.Image
 import numpy as np
 import typing
+from typing import Optional
 from vtkmodules.util.numpy_support import numpy_to_vtk, vtk_to_numpy, numpy_to_vtkIdTypeArray
+from vtkmodules.util.vtkImageImportFromArray import vtkImageImportFromArray
 
 try:
   import nrrd
@@ -92,6 +97,8 @@ class Vtk3DSceneObjects:
 
     sensorModel: slicer.vtkMRMLModelNode
     sensorModelDisplay: slicer.vtkMRMLModelDisplayNode
+    sensorModelImage: vtk.vtkImageData
+    sensorModelImageProducer: vtk.vtkTrivialProducer
 
     trajectoryModel: slicer.vtkMRMLModelNode
     trajectoryModelDisplay: slicer.vtkMRMLModelDisplayNode
@@ -135,6 +142,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.ui.loadSourceTrajectoryButton.clicked.connect(self.onLoadSourceTrajectoryClicked)
         self.ui.loadFullDatasetButton.clicked.connect(self.onLoadFullDataset)
         self.ui.fetchSinogramButton.clicked.connect(self.onFetchSinogramSliceClicked)
+        self.ui.showSinogramOnSensorCheckbox.stateChanged.connect(self.setImageOnSensor)
 
         self.ui.playButton.toggled.connect(self.playButtonToggled)
         self.ui.playSpeedSlider.valueChanged.connect(lambda x : self.ui.playSpeedLabel.setText(f"Speed: x{x}"))
@@ -488,12 +496,14 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         sceneObjects.sensorModel.SetAndObserveDisplayNodeID(sceneObjects.sensorModelDisplay.GetID())
         sceneObjects.sensorModelDisplay.SetColor((1.0, 0.5, 0.0))
         sceneObjects.sensorModelDisplay.SetOpacity(0.7)
-        sceneObjects.sensorModelDisplay.SetLineWidth(2)
         sceneObjects.sensorModelDisplay.SetVisibility(1)
         sceneObjects.sensorModelDisplay.SetRepresentation(2)          # Surface
         sceneObjects.sensorModelDisplay.SetEdgeVisibility(False)      # Hide edges
         sceneObjects.sensorModelDisplay.SetInterpolation(1)           # Phong
         sceneObjects.sensorModelDisplay.SetBackfaceCulling(False)     # Render both sides
+        sceneObjects.sensorModelImage = vtk.vtkImageData()
+        sceneObjects.sensorModelImageProducer = vtk.vtkTrivialProducer()
+        sceneObjects.sensorModelImageProducer.SetOutput(sceneObjects.sensorModelImage)
 
         sceneObjects.trajectoryModel = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", "Trajectory")
         polys = vtk.vtkPolyData()
@@ -594,12 +604,18 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
     def updateSensorGeometry(self, index: int):
         bezier_curves = self.fullGeometryData.get("bezier_curves", [])
+        bezier_curves_uvs = self.fullGeometryData.get("bezier_curves_uvs", [])
         curves = np.array(bezier_curves[index])
+        curve_uvs = np.array(bezier_curves_uvs[index])
 
         num_rows = len(curves)
         num_cols = len(curves[0])
         if any(len(row) != num_cols for row in curves):
             print("[ERROR] Inconsistent number of points per curve row.")
+            return
+        
+        if len(curve_uvs) != num_rows or any(len(row) != num_cols for row in curve_uvs):
+            print("[ERROR] Inconsistent number of points per curve uv row.")
             return
         #print(f"sensor {num_rows} {num_cols} {curves.shape}")
         
@@ -620,13 +636,35 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         points.SetData(numpy_to_vtk(curves.reshape(num_rows * num_cols, 3), 1))
         #print(points)
 
+        pointData = polyData.GetPointData()
+        pointData.SetTCoords(numpy_to_vtk(curve_uvs.reshape(num_rows * num_cols, 2), 1))
+        #print(pointData)
+
         cells = polyData.GetPolys()
         cells.SetData(4, numpy_to_vtkIdTypeArray(np.ravel(indices), 1))
         #print(cells)
 
         points.Modified()
+        pointData.Modified()
         cells.Modified()
         polyData.Modified()
+
+        #print(polyData)
+
+    def setImageOnSensor(self, state : int):
+        if hasattr(self, "sceneObjects") == False or self.sceneObjects == None:
+            return
+        
+        print(f"show on sensor: {state}")
+        if state == 2:
+            self.sceneObjects.sensorModelDisplay.SetTextureImageDataConnection(self.sceneObjects.sensorModelImageProducer.GetOutputPort())
+            self.sceneObjects.sensorModelDisplay.SetOpacity(1.0)
+            self.sceneObjects.sensorModelDisplay.SetInterpolation(0) # Flat
+            self.sceneObjects.sensorModelDisplay.SetScalarRangeFlag(1) # Data range = auto
+        else:
+            self.sceneObjects.sensorModelDisplay.SetTextureImageDataConnection(None)
+            self.sceneObjects.sensorModelDisplay.SetOpacity(0.7)
+            self.sceneObjects.sensorModelDisplay.SetInterpolation(1) # Phong
 
     # -----------------------------
     # Full dataset workflow
@@ -658,6 +696,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             # Load first frame
             self.sceneObjects = self.createSceneObjects()
             self.updateSceneData(0)
+            self.onFetchSinogramSliceClicked()
+            self.setImageOnSensor(self.ui.showSinogramOnSensorCheckbox.checkState())
 
         except Exception as e:
             slicer.util.errorDisplay(f"Failed to load full dataset:\n{e}")
@@ -711,13 +751,22 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             end = time.time()
             print(f"[DEBUG] Adding/modifying volume took: {end - start} s")
 
+            start = time.time()
+            self.sceneObjects.sensorModelImage.SetDimensions(img_data.shape[1], img_data.shape[0], 1)
+            # FIXME: Do not allocate a new VTK arrray, update the existing one if possible!
+            vtk_array = numpy_to_vtk(img_data.reshape(img_data.shape[0] * img_data.shape[1], 1), 1, vtk.VTK_UNSIGNED_CHAR)
+            #print(vtk_array)
+            self.sceneObjects.sensorModelImage.GetPointData().SetScalars(vtk_array)
+            end = time.time()
+            print(f"[DEBUG] Updating sensor texture took: {end - start} s")
+
             if self.volume_node:
                 for view in ["Red", "Green", "Yellow"]:
                     slicer.app.layoutManager().sliceWidget(view).sliceLogic().GetSliceCompositeNode().SetBackgroundVolumeID(self.volume_node.GetID())
                 slicer.app.layoutManager().resetSliceViews()
             else:
                 slicer.util.errorDisplay("Failed to load sinogram slice.")
-            
+
         except Exception as e:
             self.sliderDebounceTimer.stop()
             import traceback
@@ -733,12 +782,22 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             start = time.time()
             response = self.session.get(f"{base}/get_sinogram_slice/{index}")
             end = time.time()
-            print(f"Download (full detail) took {end-start} s {len(response.content)/1000} kb")
+            print(f"[DEBUG] Download (full detail) took {end-start} s {len(response.content)/1000} kb")
 
             start = time.time()
             bytes = io.BytesIO(response.content)
             header = nrrd.read_header(bytes)
             data = nrrd.read_data(header=header, fh=bytes)
+            end = time.time()
+            print(f"[DEBUG] Decoding image took {end-start} s {data.shape} {data.dtype}")
+
+            #slice_2d = data.squeeze()
+            #min = np.min(slice_2d)
+            #max = np.max(slice_2d)
+            #img_data = np.iinfo(np.uint8).max * (slice_2d - min) / (max - min)
+            #im = PIL.Image.fromarray(img_data.astype(np.uint8))
+            #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}.jp2", format="", irreversible=True, quality_mode="dB", quality_layers=[44])
+            #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}_q57_s10.avif", format="", max_threads=1, quality=57, speed=10)
 
             start = time.time()
             if hasattr(self, 'full_detail_volume_node') and self.full_detail_volume_node:
@@ -750,7 +809,20 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 self.full_detail_volume_node = slicer.util.addVolumeFromArray(data)
                 self.full_detail_volume_node.name = f"Full detail sinogram"
             end = time.time()
-            print(f"Adding/modifying volume took: {end - start} s")
+            print(f"[DEBUG] Adding/modifying volume took: {end - start} s")
+
+            # FIXME: Because we send float data VTK decides that it needs to apply
+            # some kind of color map to the data, resulting in a non-grayscale result.
+            # I need to figure out how to make this be a gray-scale thing.
+            # - Julius Häger 2026-03-13
+            #start = time.time()
+            #self.sceneObjects.sensorModelImage.SetDimensions(data.shape[1], data.shape[0], 1)
+            ## FIXME: Do not allocate a new VTK arrray, update the existing one if possible!
+            #vtk_array = numpy_to_vtk(data.reshape(data.shape[0] * data.shape[1], 1), 1, vtk.VTK_FLOAT)
+            ##print(vtk_array)
+            #self.sceneObjects.sensorModelImage.GetPointData().SetScalars(vtk_array)
+            #end = time.time()
+            #print(f"[DEBUG] Updating sensor texture took: {end - start} s")
 
             if self.full_detail_volume_node:
                 for view in ["Red", "Green", "Yellow"]:
@@ -758,9 +830,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 slicer.app.layoutManager().resetSliceViews()
             else:
                 slicer.util.errorDisplay("Failed to load sinogram slice.")
-            
-            end = time.time()
-            print(f"Loading data took {end-start} s")
+
         except Exception as e:
             import traceback
             print(traceback.format_exc())
@@ -779,7 +849,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 # -----------------------------
 # HTTP helpers (use saved base URL)
 # -----------------------------
-def stream_nrrd_from_url(filename, base_url: str = None):
+def stream_nrrd_from_url(filename, base_url: Optional[str] = None):
     try:
         base = normalize_base_url(base_url or get_saved_base_url())
         url = f"{base}/images/{filename}"
@@ -826,8 +896,8 @@ def stream_nrrd_from_url(filename, base_url: str = None):
     except Exception as e:
         slicer.util.errorDisplay(f"Failed to process or load the NRRD file.\n\nError: {e}", windowTitle="Processing Failed")
 
-
-def stream_vtp_from_url(filenames, base_url: str = None):
+# FIXME: Remove
+def stream_vtp_from_url(filenames, base_url: Optional[str] = None):
     """
     Download and load one or more VTP files into 3D Slicer with appropriate coloring and settings.
     """

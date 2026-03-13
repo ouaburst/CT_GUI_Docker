@@ -54,8 +54,9 @@ RUN pip install --no-cache-dir \
       torchvision==0.13.1+cu113 \
       torchaudio==0.12.1 \
       --extra-index-url https://download.pytorch.org/whl/cu113 \
+      pillow==12.1.1 \
   && pip install --no-cache-dir \
-      fastapi uvicorn[standard] starlette requests scipy pynrrd pyvista pillow
+      fastapi uvicorn[standard] starlette requests scipy pynrrd pyvista
 
 # ------------------------------
 # ODL (custom ASTRA curved branch)

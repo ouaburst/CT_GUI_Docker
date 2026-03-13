@@ -6,14 +6,20 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>602</width>
-    <height>753</height>
+    <width>431</width>
+    <height>842</height>
    </rect>
   </property>
   <property name="windowTitle">
    <string>SinoReconsVisual2 Module</string>
   </property>
   <widget class="QWidget" name="centralwidget">
+   <property name="sizePolicy">
+    <sizepolicy hsizetype="Preferred" vsizetype="MinimumExpanding">
+     <horstretch>0</horstretch>
+     <verstretch>0</verstretch>
+    </sizepolicy>
+   </property>
    <layout class="QVBoxLayout" name="mainLayout" stretch="0">
     <item>
      <widget class="QScrollArea" name="scrollArea">
@@ -25,13 +31,25 @@
         <rect>
          <x>0</x>
          <y>0</y>
-         <width>567</width>
-         <height>693</height>
+         <width>409</width>
+         <height>747</height>
         </rect>
+       </property>
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
        </property>
        <layout class="QVBoxLayout" name="contentsLayout" stretch="0,0,0,1,0,0,0">
         <item>
          <widget class="QGroupBox" name="connectionGroup">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
           <property name="title">
            <string>Connect to server</string>
           </property>
@@ -69,6 +87,12 @@
         </item>
         <item>
          <widget class="QGroupBox" name="selectionGroup">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
           <property name="title">
            <string>Selections</string>
           </property>
@@ -118,6 +142,12 @@
         </item>
         <item>
          <widget class="QGroupBox" name="fbpParameterGroupBox">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
           <property name="title">
            <string>FBP Parameters</string>
           </property>
@@ -154,35 +184,73 @@
         </item>
         <item>
          <widget class="QGroupBox" name="landweberParameterGroupBox">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
           <property name="title">
            <string>Landweber Parameters</string>
           </property>
           <layout class="QGridLayout" name="lwLayout">
            <item row="0" column="0">
             <widget class="QLabel" name="label_iterations">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
              <property name="text">
               <string>Iterations:</string>
              </property>
             </widget>
            </item>
            <item row="0" column="1">
-            <widget class="QSpinBox" name="iterationsSpinBox"/>
+            <widget class="QSpinBox" name="iterationsSpinBox">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Minimum" vsizetype="Preferred">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+            </widget>
            </item>
            <item row="1" column="0">
             <widget class="QLabel" name="label_relaxation">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
              <property name="text">
               <string>Relaxation:</string>
              </property>
             </widget>
            </item>
            <item row="1" column="1">
-            <widget class="QDoubleSpinBox" name="relaxationSpinBox"/>
+            <widget class="QDoubleSpinBox" name="relaxationSpinBox">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+            </widget>
            </item>
           </layout>
          </widget>
         </item>
         <item>
          <widget class="QGroupBox" name="remoteActionsGroup">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
           <property name="title">
            <string>Remote action</string>
           </property>
@@ -213,10 +281,54 @@
         </item>
         <item>
          <widget class="QGroupBox" name="navigationGroup">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
           <property name="title">
            <string>Navigation</string>
           </property>
           <layout class="QGridLayout" name="navLayout">
+           <item row="3" column="0">
+            <layout class="QHBoxLayout" name="indexSliderLayout">
+             <item>
+              <widget class="QSlider" name="indexSlider">
+               <property name="minimum">
+                <number>0</number>
+               </property>
+               <property name="maximum">
+                <number>0</number>
+               </property>
+               <property name="orientation">
+                <enum>Qt::Horizontal</enum>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="sliderIndexLabel">
+               <property name="text">
+                <string>Index: 0</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item row="1" column="0">
+            <widget class="QPushButton" name="loadFullDatasetButton">
+             <property name="text">
+              <string>Load Full Dataset</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="0">
+            <widget class="QPushButton" name="fetchSinogramButton">
+             <property name="text">
+              <string>Fetch Sinogram Slice</string>
+             </property>
+            </widget>
+           </item>
            <item row="4" column="0">
             <layout class="QHBoxLayout" name="playButtonLayout">
              <item>
@@ -269,59 +381,30 @@
              </item>
             </layout>
            </item>
-           <item row="1" column="0">
-            <widget class="QPushButton" name="loadFullDatasetButton">
-             <property name="text">
-              <string>Load Full Dataset</string>
-             </property>
-            </widget>
-           </item>
-           <item row="0" column="0">
-            <widget class="QPushButton" name="fetchSinogramButton">
-             <property name="text">
-              <string>Fetch Sinogram Slice</string>
-             </property>
-            </widget>
-           </item>
-           <item row="3" column="0">
-            <layout class="QHBoxLayout" name="indexSliderLayout">
-             <item>
-              <widget class="QSlider" name="indexSlider">
-               <property name="minimum">
-                <number>0</number>
-               </property>
-               <property name="maximum">
-                <number>0</number>
-               </property>
-               <property name="orientation">
-                <enum>Qt::Horizontal</enum>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QLabel" name="sliderIndexLabel">
-               <property name="text">
-                <string>Index: 0</string>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </item>
           </layout>
          </widget>
         </item>
         <item>
-         <spacer name="verticalSpacer">
-          <property name="orientation">
-           <enum>Qt::Vertical</enum>
+         <widget class="QGroupBox" name="visualizationSettings">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
           </property>
-          <property name="sizeHint" stdset="0">
-           <size>
-            <width>20</width>
-            <height>40</height>
-           </size>
+          <property name="title">
+           <string>Visualization settings</string>
           </property>
-         </spacer>
+          <layout class="QGridLayout" name="visualizationSettingsLayout">
+           <item row="0" column="0">
+            <widget class="QCheckBox" name="showSinogramOnSensorCheckbox">
+             <property name="text">
+              <string>Show sinogram on sensor</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
         </item>
        </layout>
       </widget>
@@ -334,7 +417,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>602</width>
+     <width>431</width>
      <height>21</height>
     </rect>
    </property>

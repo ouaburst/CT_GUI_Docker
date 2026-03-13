@@ -123,6 +123,26 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.ui = slicer.util.childWidgetVariables(uiWidget)
         self.layout.addWidget(uiWidget)
 
+        layoutDesc = """
+        <layout type="vertical">
+            <item><view class="vtkMRMLViewNode" singletontag="1">
+                <property name="viewlabel" action="default">1</property>
+                <property name="viewcolor" action="default">#FFFF00</property>
+            </view></item>
+            <item><view class="vtkMRMLSliceNode" singletontag="Yellow">
+                <property name="orientation" action="default">Axial</property>
+                <property name="viewlabel" action="default">Y</property>
+                <property name="viewcolor" action="default">#0000FF</property>
+            </view></item>
+        </layout>
+        """
+        customLayoutId = 1234
+
+        # FIXME: Unload layout desc when we reload the plugin!
+        layoutManager = slicer.app.layoutManager()
+        layoutManager.layoutLogic().GetLayoutNode().AddLayoutDescription(customLayoutId, layoutDesc)
+        layoutManager.setLayout(customLayoutId)
+
         # Initialize saved backend URL into the line edit (new field in UI)
         if hasattr(self.ui, "serverUrlLineEdit") and self.ui.serverUrlLineEdit is not None:
             self.ui.serverUrlLineEdit.setText(get_saved_base_url())

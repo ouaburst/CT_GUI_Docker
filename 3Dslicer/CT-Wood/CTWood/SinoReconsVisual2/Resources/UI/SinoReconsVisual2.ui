@@ -395,6 +395,9 @@
           <property name="title">
            <string>Visualization settings</string>
           </property>
+          <property name="flat">
+           <bool>false</bool>
+          </property>
           <layout class="QGridLayout" name="visualizationSettingsLayout">
            <item row="0" column="0">
             <widget class="QCheckBox" name="showSinogramOnSensorCheckbox">

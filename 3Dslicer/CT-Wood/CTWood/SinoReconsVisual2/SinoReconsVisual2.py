@@ -74,17 +74,19 @@ def _normalize_fbp_filter(name: str) -> str:
     }
     return mapping.get(key, "ram-lak")
 
+def get_icons_folder() -> str:
+    return os.path.join(os.path.dirname(__file__), "Resources", "Icons")
+
 class SinoReconsVisual2(ScriptedLoadableModule):
     def __init__(self, parent):
         ScriptedLoadableModule.__init__(self, parent)
         self.parent.title = _("SinoReconsVisual2")
         self.parent.categories = [translate("qSlicerAbstractCoreModule", "Utilities")]
         self.parent.dependencies = []
-        self.parent.contributors = ["Oualid Burström (LTU)"]
+        self.parent.contributors = ["Oualid Burström (LTU)", "Julius Häger (KTH)"]
         self.parent.helpText = _("The SinoReconsVisual2 extension enables users ...")
         self.parent.acknowledgementText = _("")
-        iconsPath = os.path.join(os.path.dirname(__file__), "Resources", "Icons")
-        iconPath = os.path.join(iconsPath, "SinoReconsVisual2.png")
+        iconPath = os.path.join(get_icons_folder(), "SinoReconsVisual2.png")
         if os.path.exists(iconPath):
             self.parent.icon = qt.QIcon(iconPath)
 
@@ -123,25 +125,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.ui = slicer.util.childWidgetVariables(uiWidget)
         self.layout.addWidget(uiWidget)
 
-        layoutDesc = """
-        <layout type="vertical">
-            <item><view class="vtkMRMLViewNode" singletontag="1">
-                <property name="viewlabel" action="default">1</property>
-                <property name="viewcolor" action="default">#FFFF00</property>
-            </view></item>
-            <item><view class="vtkMRMLSliceNode" singletontag="Yellow">
-                <property name="orientation" action="default">Axial</property>
-                <property name="viewlabel" action="default">Y</property>
-                <property name="viewcolor" action="default">#0000FF</property>
-            </view></item>
-        </layout>
-        """
-        customLayoutId = 1234
-
-        # FIXME: Unload layout desc when we reload the plugin!
-        layoutManager = slicer.app.layoutManager()
-        layoutManager.layoutLogic().GetLayoutNode().AddLayoutDescription(customLayoutId, layoutDesc)
-        layoutManager.setLayout(customLayoutId)
+        self.registerSinogramLayout()
 
         # Initialize saved backend URL into the line edit (new field in UI)
         if hasattr(self.ui, "serverUrlLineEdit") and self.ui.serverUrlLineEdit is not None:
@@ -186,6 +170,39 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         # because slicer.mrmlScene isn't set here or something similar.
         # - Julius Häger 2026-03-05
         #self.sceneObjects = self.createSceneObjects()
+
+    def registerSinogramLayout(self):
+        layoutDesc = """
+        <layout type="vertical">
+            <item><view class="vtkMRMLViewNode" singletontag="1">
+                <property name="viewlabel" action="default">1</property>
+                <property name="viewcolor" action="default">#FFFF00</property>
+            </view></item>
+            <item><view class="vtkMRMLSliceNode" singletontag="Yellow">
+                <property name="orientation" action="default">Axial</property>
+                <property name="viewlabel" action="default">Y</property>
+                <property name="viewcolor" action="default">#0000FF</property>
+            </view></item>
+        </layout>
+        """
+        customLayoutId = 1234
+
+        # FIXME: Unload layout desc when we reload the plugin!
+        layoutManager = slicer.app.layoutManager()
+        if not layoutManager.layoutLogic().GetLayoutNode().SetLayoutDescription(customLayoutId, layoutDesc):
+            layoutManager.layoutLogic().GetLayoutNode().AddLayoutDescription(customLayoutId, layoutDesc)
+            layoutManager.setLayout(customLayoutId)
+
+            slicer.app.layoutManager().threeDWidget(0).mrmlAbstractViewNode().SetFPSVisible(True)
+
+            # Add button to layout selector toolbar for this custom layout
+            viewToolBar = slicer.util.mainWindow().findChild("QToolBar", "ViewToolBar")
+            layoutMenu = viewToolBar.widgetForAction(viewToolBar.actions()[0]).menu()
+            layoutSwitchActionParent = layoutMenu  # use `layoutMenu` to add inside layout list, use `viewToolBar` to add next the standard layout list
+            layoutSwitchAction = layoutSwitchActionParent.addAction("Sinogram layout") # add inside layout list
+            layoutSwitchAction.setData(customLayoutId)
+            layoutSwitchAction.setIcon(qt.QIcon(os.path.join(get_icons_folder(), "SinoReconsVisual2.png")))
+            layoutSwitchAction.setToolTip("3D and sinogram view")
 
     def cleanup(self):
         self.destroySceneObjects()
@@ -818,6 +835,11 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             #im = PIL.Image.fromarray(img_data.astype(np.uint8))
             #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}.jp2", format="", irreversible=True, quality_mode="dB", quality_layers=[44])
             #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}_q57_s10.avif", format="", max_threads=1, quality=57, speed=10)
+            #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}_q57_s8.avif", format="", max_threads=1, quality=57, speed=8)
+            #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}_q57_s6.avif", format="", max_threads=1, quality=57, speed=6)
+            #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}_q57_s4.avif", format="", max_threads=1, quality=57, speed=4)
+            #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}_q57_s2.avif", format="", max_threads=1, quality=57, speed=2)
+            #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}_q57_s0.avif", format="", max_threads=1, quality=57, speed=0)
 
             start = time.time()
             if hasattr(self, 'full_detail_volume_node') and self.full_detail_volume_node:

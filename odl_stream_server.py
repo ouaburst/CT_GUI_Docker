@@ -139,35 +139,39 @@ def _load_sample_data(sample_dir: Path):
         raise FileNotFoundError(f"Missing files in {sample_dir}: {missing}")
 
     # Load raw arrays
+    start = time.time()
     sinogram = np.load(sample_dir / "sinogram.npy")                 # expected (N, det_x, det_z)
     angles_raw = np.mod(np.load(sample_dir / "angles.npy"), 2*np.pi)
     z_raw = np.load(sample_dir / "axial_positions.npy")
     shifts_raw = np.load(sample_dir / "shifts.npy")
     with open(sample_dir / "metadata.json") as f:
         metadata = json.load(f)
+    end = time.time()
 
-    print(f"[INFO] Sinogram loaded with shape {sinogram.shape} and dtype {sinogram.dtype}")
+    print(f"[INFO] Sinogram loaded with shape {sinogram.shape} and dtype {sinogram.dtype} in {end-start:.3} s")
 
     # Apply z correction (accounting for any per-view shift in z)
     z_corrected = z_raw + shifts_raw[:, 2]
 
-    # Sort by angle to ensure monotonic progression along the scan
-    sorted_indices = np.argsort(angles_raw)
-    angles_sorted = angles_raw[sorted_indices]
-    z_sorted = z_corrected[sorted_indices]
-
     # Cache counts and detector pixel size
-    N = len(angles_sorted)
+    N = len(angles_raw)
     pix_size_det = float(metadata["DET_PIX_SIZE"])
 
+    # The angles are all mod 2PI so we need to undo this operation
+    # by finding the wrapping points and add 2PI to all angles after that point.
+    # - Julius Häger 2026-03-17
+    wrapping_points = np.nonzero(np.ediff1d(angles_raw, to_begin=False) < 0)[0]
+    angles_increasing = np.copy(angles_raw)
+    for w in wrapping_points:
+        angles_increasing[w:] += 2 * np.pi
+
     # Estimate helical pitch (z advance per full 2π revolution)
-    angle_range = float(angles_sorted[-1] - angles_sorted[0])
-    z_range = float(z_sorted[-1] - z_sorted[0])
+    angle_range = float(angles_increasing[-1] - angles_increasing[0])
+    z_range = float(z_corrected[-1] - z_corrected[0])
     pitch = z_range * (2 * np.pi) / angle_range if angle_range != 0 else 0.0
     print(f"[INFO] Computed pitch: {pitch:.2f} mm")
 
-    # Create ODL angle partition over [0, 2π) of length N
-    angle_partition = odl.uniform_partition(0, 2 * np.pi, N)
+    angle_partition = odl.nonuniform_partition(angles_increasing)
 
     # Create 2D detector partition using physical extents and number of pixels
     detector_partition = odl.uniform_partition(
@@ -177,10 +181,15 @@ def _load_sample_data(sample_dir: Path):
     )
 
     # Keep an angle→z interpolation (currently not plugged into src_shift_func)
-    _ = interp1d(
-        angles_sorted, z_sorted, kind="linear",
-        bounds_error=False, fill_value=(z_sorted[0], z_sorted[-1]) # type: ignore The function has a special case for fill_value being a 2-tuple.
+    z_shift_func = interp1d(
+        angles_increasing, z_corrected, kind="linear",
+        bounds_error=False, fill_value=(z_corrected[0], z_corrected[-1]) # type: ignore The function has a special case for fill_value being a 2-tuple.
     )
+
+    def shift_func(angle):
+        res = np.zeros((len(angle), 3))
+        res[:, 2] = z_shift_func(angle)
+        return res
 
     # Build helical cone-beam geometry; det_curvature_radius[0] is tangential curvature
     geometry = odl.tomo.ConeBeamGeometry(
@@ -189,9 +198,10 @@ def _load_sample_data(sample_dir: Path):
         src_radius=metadata["SRC_RADIUS"],
         det_radius=metadata["DET_RADIUS"],
         det_curvature_radius=[metadata["DET_CURVATURE_RADIUS"], None],
-        pitch=pitch, # type: ignore The argument is a float, the function annotation is wrong.
+        pitch=0, # type: ignore The argument is a float, the function annotation is wrong.
         axis=[0, 0, 1],
-        src_shift_func=None,     # could be set to a function of angle if needed
+        src_shift_func=shift_func,     # could be set to a function of angle if needed
+        det_shift_func=shift_func,
         translation=[0, 0, 0],
     )
 
@@ -511,21 +521,41 @@ def generate_full_geometry():
 
     if sample_name != None:
         start = time.time()
-        print(f"[INFO] Generating sinogram cache")
+        print(f"[INFO] Generating sinogram cache (jp2)")
         sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
         Path.mkdir(sample_sinogram_cache_dir, parents=True, exist_ok=True)
         with multiprocessing.Pool(processes=24) as p:
-            p.map(compress_sinogram_slice, range(N))
+            p.map(compress_sinogram_slice_jp2, range(N))
             # FIXME: Some way to report progress...?
             p.close()
             p.join()
         end = time.time()
-        print(f"[INFO] Generated sinogram cache in {end - start} seconds")
+
+        import os
+        jp2_size = 0
+        for i in range(N):
+            jp2_size += os.path.getsize(sample_sinogram_cache_dir / f"{i}.jp2")
+        print(f"[INFO] Generated sinogram cache in {end - start} seconds ({jp2_size} b)")
+
+        #print(f"[INFO] Generating sinogram cache (avif)")
+        #sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
+        #Path.mkdir(sample_sinogram_cache_dir, parents=True, exist_ok=True)
+        #with multiprocessing.Pool(processes=24) as p:
+        #    p.map(compress_sinogram_slice_avif, range(N))
+        #    # FIXME: Some way to report progress...?
+        #    p.close()
+        #    p.join()
+        #end = time.time()
+        #import os
+        #avif_size = 0
+        #for i in range(N):
+        #    avif_size += os.path.getsize(sample_sinogram_cache_dir / f"{i}.avif")
+        #print(f"[INFO] Generated sinogram cache in {end - start} seconds ({avif_size} b)")
     else:
         print(f"[WARNING] Need to select a sinogram to generate cache")
 
-def compress_sinogram_slice(i):
-    global sample_name
+def compress_sinogram_slice_jp2(i):
+    global sample_name, jp2_size
     sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
     if Path.exists(sample_sinogram_cache_dir / f"{i}.jp2") == False:
         slice_2d = slice_2d = sinogram[i, :, :].T
@@ -534,11 +564,17 @@ def compress_sinogram_slice(i):
         img_data = np.iinfo(np.uint8).max * (slice_2d - min) / (max - min)
         im = PIL.Image.fromarray(img_data.astype(np.uint8))
         im.save(sample_sinogram_cache_dir / f"{i}.jp2", format="", irreversible=True, quality_mode="dB", quality_layers=[44])
-        #im.save(sample_sinogram_cache_dir / f"{i}.avif", format="", max_threads=1, quality=57)
-        #import os
-        #jp2_size = os.path.getsize(sample_sinogram_cache_dir / f"{i}.jp2")
-        #avif_size = os.path.getsize(sample_sinogram_cache_dir / f"{i}.avif")
-        #print(f"{i} jp2: {jp2_size}b, avif: {avif_size}b, {(avif_size / jp2_size)*100}%")
+
+def compress_sinogram_slice_avif(i):
+    global sample_name, avif_size
+    sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
+    if Path.exists(sample_sinogram_cache_dir / f"{i}.avif") == False:
+        slice_2d = slice_2d = sinogram[i, :, :].T
+        min = np.min(slice_2d)
+        max = np.max(slice_2d)
+        img_data = np.iinfo(np.uint8).max * (slice_2d - min) / (max - min)
+        im = PIL.Image.fromarray(img_data.astype(np.uint8))
+        im.save(sample_sinogram_cache_dir / f"{i}.avif", format="", max_threads=1, quality=57, speed=7, subsampling="4:0:0")
 
 #########################################################
 # get_full_geometry (route)

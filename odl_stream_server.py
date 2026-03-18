@@ -273,7 +273,6 @@ def get_bezier_surface_points(i, num_u=8, num_v=4):
         surface_uvs.append(row_uv)
     return surface_points, surface_uvs  # (num_v, num_u, 3), (num_v, num_u, 2)
 
-
 #########################################################
 # get_geometry_at
 # Compute a simplified panel mesh + 4 FOV rays and the source
@@ -327,6 +326,94 @@ def get_geometry_at(i, nx=20, nz=2):
         rays = [[src.tolist(), c] for c in corners]
 
     return src.tolist(), detector_mesh, rays
+
+#########################################################
+# generate_sensor_geometry
+# Generate geometry for all indices.
+# Approximate the curved detector panel as a quadratic Bézier
+# surface mesh for visualization (num_v × num_u control).
+# 4 FOV rays and the source position for a given index i.
+#########################################################
+def generate_sensor_geometry(geometry: odl.tomo.ConeBeamGeometry, num_u=8, num_v=4):
+    angles = geometry.angles
+    src_positions = geometry.src_position(angles)
+    det_refpoints = geometry.det_refpoint(angles)
+    det_axes = geometry.det_axes(angles)
+
+    du = det_axes[:, 0, :]
+    dv = det_axes[:, 1, :]
+
+    #print(f"src_positions = {src_positions.shape}")
+    #print(f"det_refpoints = {det_refpoints.shape}")
+    #print(f"det_axes = {det_axes.shape}")
+    #print(f"du = {du.shape}")
+    #print(f"dv = {dv.shape}")
+
+    # Determine tangential curvature range from pixel count and pixel size
+    R_curv = float(metadata["DET_CURVATURE_RADIUS"])
+    n_x = int(metadata["DET_NPX_X"])
+    arc_length = n_x * pix_size_det
+    theta_range = arc_length / R_curv
+
+    # Use 3 control columns in theta (quadratic Bézier) and 3 rows in z
+    theta_vals = np.linspace(-theta_range / 2, theta_range / 2, 3)
+    z_vals = np.linspace(float(metadata["DET_Z_MIN"]), float(metadata["DET_Z_MAX"]), 3)
+
+    # Outward normal approx from detector center to source
+    normals = src_positions - det_refpoints
+    normals = normals / np.linalg.norm(normals, axis=1).reshape(-1, 1)
+
+    # Build 3×3 control grid in 3D
+    # FIXME: Change the order of dimensions in some way that makes sense...
+    control_points = np.empty((3, 3, len(angles), 3))
+    for iz, z in enumerate(z_vals):
+        for itheta, theta in enumerate(theta_vals):
+            # Arc along du + sagitta along normal + vertical offset along dv
+            control_points[iz, itheta] = det_refpoints + R_curv * np.sin(theta) * du + R_curv * (1 - np.cos(theta)) * normals + z * dv
+
+    #print(f"control_points: {control_points.shape}")
+
+    # Local helper: 1D quadratic Bézier interpolation for 3 control pts
+    def bezier_interp_1d(ctrl, t: float):
+        return (1 - t) ** 2 * ctrl[0] + 2 * (1 - t) * t * ctrl[1] + t ** 2 * ctrl[2]
+
+    # Sample u (tangential) and v (vertical)
+    u_vals = np.linspace(0, 1, num_u)
+    v_vals = np.linspace(0, 1, num_v)
+
+    v: np.float64
+    u: np.float64
+    surface_points = np.empty((num_v, num_u, len(angles), 3))
+    surface_uvs = np.empty((num_v, num_u, 2))
+    interm_rows = np.empty((3, len(angles), 3))
+    for iv, v in enumerate(v_vals):
+        for iu, u in enumerate(u_vals):
+            interm_rows[0] = bezier_interp_1d(control_points[0], u)
+            interm_rows[1] = bezier_interp_1d(control_points[1], u)
+            interm_rows[2] = bezier_interp_1d(control_points[2], u)
+            pt = bezier_interp_1d(interm_rows, v)
+            surface_points[iv, iu] = pt
+            surface_uvs[iv, iu] = np.array([u, v])
+
+    surface_points = np.transpose(surface_points, (2, 0, 1, 3)) # (N, num_v, num_u, 3)
+    #print(f"surface_points: {surface_points.shape}")
+    #print(f"surface_uvs: {surface_uvs.shape}")
+
+    rays = np.empty((4, 2, len(src_positions), 3))
+
+    rays[0, 0] = src_positions
+    rays[1, 0] = src_positions
+    rays[2, 0] = src_positions
+    rays[3, 0] = src_positions
+
+    rays[0, 1] = surface_points[:,  0,  0, :]
+    rays[1, 1] = surface_points[:,  0, -1, :]
+    rays[2, 1] = surface_points[:, -1, -1, :]
+    rays[3, 1] = surface_points[:, -1,  0, :]
+
+    rays = np.transpose(rays, (2, 0, 1, 3)) # (N, 4, 2, 3)
+
+    return src_positions, rays, surface_points, surface_uvs # (N, 3) (N, 4, 2, 3) (N, num_v, num_u, 3), (num_v, num_u, 2)
 
 # ----------------------------------
 # FastAPI app
@@ -484,7 +571,6 @@ def generate_full_geometry():
 
     print("[INFO] Precomputing and saving full geometry JSON to disk...")
 
-    start = time.time()
     data = {
         "sources": [],
         "detector_panels": [],
@@ -494,17 +580,33 @@ def generate_full_geometry():
         "bezier_curves_uvs": []
     }
 
-    for i in range(N):
-        src, corners, rays = get_geometry_at(i)
-        bezier, bezier_uvs = get_bezier_surface_points(i)
-        data["sources"].append(src)
-        data["detector_panels"].append(corners)
-        data["fov_rays"].append(rays)
-        data["full_trajectory"].append(src)
-        data["bezier_curves"].append(bezier)
-        data["bezier_curves_uvs"].append(bezier_uvs)
+    #start = time.time()
+    #for i in range(N):
+    #    src, corners, rays = get_geometry_at(i)
+    #    data["sources"].append(src)
+    #    data["detector_panels"].append(corners)
+    #    data["fov_rays"].append(rays)
+    #    data["full_trajectory"].append(src)
+    #end = time.time()
+    #print(f"[DEBUG] Generating geometry and trajectory took {end - start} seconds")
+
+    #start = time.time()
+    #for i in range(N):
+    #    bezier, bezier_uvs = get_bezier_surface_points(i)
+    #    data["bezier_curves"].append(bezier)
+    #    data["bezier_curves_uvs"].append(bezier_uvs)
+    #end = time.time()
+    #print(f"[DEBUG] Generating sensor geometry took {end - start} seconds")
+
+    start = time.time()
+    src, rays, surface, surface_uv = generate_sensor_geometry(geometry)
+    data["sources"] = src.tolist()
+    data["bezier_curves"] = surface.tolist()
+    data["bezier_curves_uvs"] = surface_uv.tolist()
+    data["fov_rays"] = rays.tolist()
+    data["full_trajectory"] = src.tolist()
     end = time.time()
-    print(f"[DEBUG] Generating geometry and trajectory took {end - start} seconds")
+    print(f"[DEBUG] Generating sensor geometry took {end - start} seconds")
 
     start = time.time()
     with open(FULL_GEOM_JSON, "w") as f:

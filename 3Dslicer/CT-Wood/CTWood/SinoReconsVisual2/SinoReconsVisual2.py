@@ -643,7 +643,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         bezier_curves = self.fullGeometryData.get("bezier_curves", [])
         bezier_curves_uvs = self.fullGeometryData.get("bezier_curves_uvs", [])
         curves = np.array(bezier_curves[index])
-        curve_uvs = np.array(bezier_curves_uvs[index])
+        curve_uvs = np.array(bezier_curves_uvs)
 
         num_rows = len(curves)
         num_cols = len(curves[0])

@@ -31,7 +31,10 @@ import typing
 # ---------------------------
 # Globals (populated on load)
 # ---------------------------
+config: dict
 sinogram: np.typing.NDArray[np.float32]   # numpy array with shape (N, det_x, det_z)
+sinogramMin: np.float32 # Minimum value in the sinogram data
+sinogramMax: np.float32 # Maximum value in the sinogram data
 angles = None            # raw angles array (not directly used after sort)
 z_positions = None       # raw axial positions (not directly used after correction)
 shifts = None            # per-projection shifts (x,y,z)
@@ -39,7 +42,7 @@ metadata: dict           # dict with geometry + reconstruction grid settings
 geometry: odl.tomo.ConeBeamGeometry # ODL ConeBeamGeometry constructed from dataset
 N = 0                    # number of projections
 pix_size_det = 0.0       # detector pixel size (mm)
-cached_full_trajectory = None  # list of 3D source positions for all indices
+cached_geometry: dict   # the geometry data
 sample_name: str
 
 # ---------------------------
@@ -55,10 +58,8 @@ IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 CONFIG_PATH = BASE_DIR / "slicer_backend_config.json"
 FULL_GEOM_JSON = OUTPUT_DIR / "full_geometry.json"
-TRAJECTORY_JSON = OUTPUT_DIR / "full_trajectory.json"
 
 SINOGRAM_CACHE_DIR = OUTPUT_DIR / "sinogram_cache"
-
 
 
 #########################################################
@@ -130,7 +131,7 @@ def _validate_reconstruction_geometry(md: dict):
 # - Stores into module-level globals
 #########################################################
 def _load_sample_data(sample_dir: Path):
-    global sinogram, angles, z_positions, shifts, metadata, geometry, N, pix_size_det
+    global sinogram, sinogramMin, sinogramMax, angles, z_positions, shifts, metadata, geometry, N, pix_size_det
 
     print(f"[INFO] Loading data from: {sample_dir}")
     req = ["sinogram.npy", "angles.npy", "axial_positions.npy", "shifts.npy", "metadata.json"]
@@ -147,6 +148,10 @@ def _load_sample_data(sample_dir: Path):
     with open(sample_dir / "metadata.json") as f:
         metadata = json.load(f)
     end = time.time()
+
+    sinogramMin = np.min(sinogram)
+    sinogramMax = np.max(sinogram)
+    print(f"[INFO] Sinogram min {sinogramMin} max {sinogramMax}")
 
     print(f"[INFO] Sinogram loaded with shape {sinogram.shape} and dtype {sinogram.dtype} in {end-start:.3} s")
 
@@ -478,29 +483,14 @@ def stream_window(i: int = Query(...), n: int = Query(10), format: str = Query("
         all_rays.append(rays)
         bezier_surfaces.append(get_bezier_surface_points(i_sorted))
 
-    # Cache or load full trajectory to avoid recompute
-    global cached_full_trajectory
-    if cached_full_trajectory is None:
-        if TRAJECTORY_JSON.exists():
-            print(f"[INFO] Loading full trajectory from disk...")
-            with open(TRAJECTORY_JSON, "r") as f:
-                cached_full_trajectory = json.load(f)
-        else:
-            print("[INFO] Computing full source trajectory and saving to disk...")
-            cached_full_trajectory = []
-            for idx in range(N):
-                src_pos, _, _ = get_geometry_at(idx)
-                cached_full_trajectory.append(src_pos)
-            with open(TRAJECTORY_JSON, "w") as f:
-                json.dump(cached_full_trajectory, f)
-    else:
-        print("[INFO] Using cached full source trajectory.")
+    
+    global cached_geometry
 
     return JSONResponse(content={
         "sources": sources,
         "detector_panels": all_quads,
         "fov_rays": all_rays,
-        "full_trajectory": cached_full_trajectory,
+        "full_trajectory": cached_geometry["full_trajectory"],
         "total_angles": N,
         "bezier_curves": bezier_surfaces
     })
@@ -514,114 +504,112 @@ def stream_window(i: int = Query(...), n: int = Query(10), format: str = Query("
 #########################################################
 @app.get("/full_dataset")
 def full_dataset():
-    global cached_full_trajectory
-
-    if cached_full_trajectory is None:
-        print("[INFO] Computing full source trajectory...")
-        cached_full_trajectory = []
-        for idx in range(N):
-            src_pos, _, _ = get_geometry_at(idx)
-            cached_full_trajectory.append(src_pos)
-        with open(TRAJECTORY_JSON, "w") as f:
-            json.dump(cached_full_trajectory, f)
-    else:
-        print("[INFO] Using cached full source trajectory.")
-
-    print("[INFO] Preparing full geometry and sinogram for streaming...")
-
-    geometry_data = []
-    for i in range(N):
-        src, corners, rays = get_geometry_at(i)
-        geometry_data.append({
-            "index": i,
-            "source": src,
-            "corners": corners,
-            "rays": rays
-        })
+    global cached_geometry
 
     print("[INFO] Dataset ready for transmission.")
     return JSONResponse(content={
+        "total_angles": N,
         "sinogram": sinogram.tolist(),  # shape: (N, det_x, det_z)
-        "geometry": geometry_data,      # per-index geometry
-        "trajectory": cached_full_trajectory,
-        "total_angles": N
+        "geometry": cached_geometry,    # geometry data
     })
 
-
-# FIXME: Better name, this is a general startup function...
 #########################################################
-# generate_full_geometry (startup)
+# startup (startup)
 # On app startup:
 # - Load config and the first sample
 # - Precompute and persist a compact geometry JSON
 # - Persist the full trajectory JSON
+# - Generate sinogram image cache
 #########################################################
 @app.on_event("startup")
-def generate_full_geometry():
+def startup():
     """Load config + default sample, then write output/full_geometry.json and cache trajectory."""
-    global cached_full_trajectory, sample_name
+    global config, sample_name
 
-    cfg = _load_config()
-    if not cfg.get("samples"):
+    config = _load_config()
+    if not config.get("samples"):
         raise RuntimeError("No samples listed in slicer_backend_config.json")
-    first = cfg["samples"][0]
-    sample_dir = _resolve_sample_dir(cfg, first["specie"], int(first["tree_ID"]), int(first["disk_ID"]))
-    _load_sample_data(sample_dir)
-    sample_name = f"{first['specie']}_{int(first['tree_ID'])}_{int(first['disk_ID'])}"
+    first = config["samples"][0]
+    sample_name = ""
+    select_sample(SampleSelect(specie=first["specie"], tree_ID=int(first["tree_ID"]), disk_ID=int(first["disk_ID"])))
 
-    print("[INFO] Precomputing and saving full geometry JSON to disk...")
+#########################################################
+# get_full_geometry (route)
+# Serve the compact precomputed full geometry JSON file.
+#########################################################
+@app.get("/full_geometry")
+def get_full_geometry():
+    if not FULL_GEOM_JSON.exists():
+        return JSONResponse(status_code=404, content={"error": "File not found"})
+    return FileResponse(FULL_GEOM_JSON, media_type="application/json")
 
-    data = {
-        "sources": [],
-        "detector_panels": [],
-        "fov_rays": [],
-        "full_trajectory": [],
-        "bezier_curves": [],
-        "bezier_curves_uvs": []
-    }
 
-    #start = time.time()
-    #for i in range(N):
-    #    src, corners, rays = get_geometry_at(i)
-    #    data["sources"].append(src)
-    #    data["detector_panels"].append(corners)
-    #    data["fov_rays"].append(rays)
-    #    data["full_trajectory"].append(src)
-    #end = time.time()
-    #print(f"[DEBUG] Generating geometry and trajectory took {end - start} seconds")
+#########################################################
+# serve_full_trajectory (route)
+# Serve only the full source trajectory JSON.
+#########################################################
+@app.get("/full_trajectory.json")
+def serve_full_trajectory():
+    global cached_geometry
+    return JSONResponse(content=cached_geometry["full_trajectory"])
 
-    #start = time.time()
-    #for i in range(N):
-    #    bezier, bezier_uvs = get_bezier_surface_points(i)
-    #    data["bezier_curves"].append(bezier)
-    #    data["bezier_curves_uvs"].append(bezier_uvs)
-    #end = time.time()
-    #print(f"[DEBUG] Generating sensor geometry took {end - start} seconds")
+# ----- Switch sample at runtime (optional)
+class SampleSelect(BaseModel):
+    specie: str
+    tree_ID: int
+    disk_ID: int
 
-    start = time.time()
-    src, rays, surface, surface_uv = generate_sensor_geometry(geometry)
-    data["sources"] = src.tolist()
-    data["bezier_curves"] = surface.tolist()
-    data["bezier_curves_uvs"] = surface_uv.tolist()
-    data["fov_rays"] = rays.tolist()
-    data["full_trajectory"] = src.tolist()
-    end = time.time()
-    print(f"[DEBUG] Generating sensor geometry took {end - start} seconds")
+#########################################################
+# select_sample (route)
+# Switch active dataset (specie/tree/disk), reload arrays,
+# and rebuild cached geometry + trajectory JSONs.
+# This request takes around 30 seconds to complete if
+# the sinogram cache needs to be created.
+#########################################################
+@app.post("/select_sample")
+def select_sample(sel: SampleSelect):
+    """Switch active sample, reload arrays, and regenerate outputs."""
+    global cached_geometry, sample_name, config, sinogramMin, sinogramMax
 
-    start = time.time()
-    with open(FULL_GEOM_JSON, "w") as f:
-        json.dump(data, f)
+    try:
+        sample_dir = _resolve_sample_dir(config, sel.specie, sel.tree_ID, sel.disk_ID)
+        new_sample_name = f"{sel.specie}_{sel.tree_ID}_{sel.disk_ID}"
+        if sample_name != None and sample_name == new_sample_name:
+            return {"status": "ok", "sample_dir": str(sample_dir), "frames": N, "sinogram_min": float(sinogramMin), "sinogram_max": float(sinogramMax)}
+        sample_name = new_sample_name
+        print(f"[INFO] Selecting sample {sample_name}...")
+        _load_sample_data(sample_dir)
 
-    cached_full_trajectory = data["full_trajectory"]
-    with open(TRAJECTORY_JSON, "w") as f:
-        json.dump(cached_full_trajectory, f)
-    end = time.time()
-    print(f"[DEBUG] Saving geometry and trajectory took {end - start} seconds")
+        print("[INFO] Precomputing and saving full geometry JSON to disk...")
 
-    print(f"[INFO] Full geometry saved to {FULL_GEOM_JSON}")
-    print(f"[INFO] Full trajectory saved to {TRAJECTORY_JSON}")
+        # Rebuild the compact JSON & trajectory
+        cached_geometry = {
+            "sources": [],
+            "detector_panels": [],
+            "fov_rays": [],
+            "full_trajectory": [],
+            "bezier_curves": [],
+            "bezier_curves_uvs": []
+        }
 
-    if sample_name != None:
+        start = time.time()
+        src, rays, surface, surface_uv = generate_sensor_geometry(geometry)
+        cached_geometry["sources"] = src.tolist()
+        cached_geometry["bezier_curves"] = surface.tolist()
+        cached_geometry["bezier_curves_uvs"] = surface_uv.tolist()
+        cached_geometry["fov_rays"] = rays.tolist()
+        cached_geometry["full_trajectory"] = src.tolist()
+        end = time.time()
+        print(f"[DEBUG] Generating sensor geometry took {end - start} seconds")
+
+        start = time.time()
+        with open(FULL_GEOM_JSON, "w") as f:
+            json.dump(cached_geometry, f)
+        end = time.time()
+        print(f"[DEBUG] Saving geometry and trajectory took {end - start} seconds")
+
+        print(f"[INFO] Full geometry saved to {FULL_GEOM_JSON}")
+
         start = time.time()
         print(f"[INFO] Generating sinogram cache (jp2)")
         sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
@@ -653,112 +641,28 @@ def generate_full_geometry():
         #for i in range(N):
         #    avif_size += os.path.getsize(sample_sinogram_cache_dir / f"{i}.avif")
         #print(f"[INFO] Generated sinogram cache in {end - start} seconds ({avif_size} b)")
-    else:
-        print(f"[WARNING] Need to select a sinogram to generate cache")
+
+        return {"status": "ok", "sample_dir": str(sample_dir), "frames": N, "sinogram_min": float(sinogramMin), "sinogram_max": float(sinogramMax)}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 def compress_sinogram_slice_jp2(i):
-    global sample_name, jp2_size
+    global sample_name, sinogramMin, sinogramMax
     sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
     if Path.exists(sample_sinogram_cache_dir / f"{i}.jp2") == False:
         slice_2d = slice_2d = sinogram[i, :, :].T
-        min = np.min(slice_2d)
-        max = np.max(slice_2d)
-        img_data = np.iinfo(np.uint8).max * (slice_2d - min) / (max - min)
+        img_data = np.iinfo(np.uint8).max * (slice_2d - sinogramMin) / (sinogramMax - sinogramMin)
         im = PIL.Image.fromarray(img_data.astype(np.uint8))
         im.save(sample_sinogram_cache_dir / f"{i}.jp2", format="", irreversible=True, quality_mode="dB", quality_layers=[44])
 
 def compress_sinogram_slice_avif(i):
-    global sample_name, avif_size
+    global sample_name, sinogramMin, sinogramMax
     sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
     if Path.exists(sample_sinogram_cache_dir / f"{i}.avif") == False:
         slice_2d = slice_2d = sinogram[i, :, :].T
-        min = np.min(slice_2d)
-        max = np.max(slice_2d)
-        img_data = np.iinfo(np.uint8).max * (slice_2d - min) / (max - min)
+        img_data = np.iinfo(np.uint8).max * (slice_2d - sinogramMin) / (sinogramMax - sinogramMin)
         im = PIL.Image.fromarray(img_data.astype(np.uint8))
         im.save(sample_sinogram_cache_dir / f"{i}.avif", format="", max_threads=1, quality=57, speed=7, subsampling="4:0:0")
-
-#########################################################
-# get_full_geometry (route)
-# Serve the compact precomputed full geometry JSON file.
-#########################################################
-@app.get("/full_geometry")
-def get_full_geometry():
-    if not FULL_GEOM_JSON.exists():
-        return JSONResponse(status_code=404, content={"error": "File not found"})
-    return FileResponse(FULL_GEOM_JSON, media_type="application/json")
-
-
-#########################################################
-# serve_full_trajectory (route)
-# Serve only the full source trajectory JSON.
-#########################################################
-@app.get("/full_trajectory.json")
-def serve_full_trajectory():
-    if not TRAJECTORY_JSON.exists():
-        return JSONResponse(status_code=404, content={"error": "Trajectory file not found"})
-    return FileResponse(TRAJECTORY_JSON, media_type="application/json")
-
-
-# ----- Switch sample at runtime (optional)
-class SampleSelect(BaseModel):
-    specie: str
-    tree_ID: int
-    disk_ID: int
-
-
-#########################################################
-# select_sample (route)
-# Switch active dataset (specie/tree/disk), reload arrays,
-# and rebuild cached geometry + trajectory JSONs.
-#########################################################
-@app.post("/select_sample")
-def select_sample(sel: SampleSelect):
-    """Switch active sample, reload arrays, and regenerate outputs."""
-    global cached_full_trajectory, sample_name
-
-    try:
-        cfg = _load_config()
-        sample_dir = _resolve_sample_dir(cfg, sel.specie, sel.tree_ID, sel.disk_ID)
-        sample_name = f"{sel.specie}_{sel.tree_ID}_{sel.disk_ID}"
-
-        # Clean previous artifacts to avoid stale data
-        for p in [FULL_GEOM_JSON, TRAJECTORY_JSON]:
-            try:
-                if p.exists():
-                    p.unlink()
-            except Exception:
-                pass
-
-        _load_sample_data(sample_dir)
-
-        # Rebuild the compact JSON & trajectory
-        data = {
-            "sources": [],
-            "detector_panels": [],
-            "fov_rays": [],
-            "full_trajectory": [],
-            "bezier_curves": []
-        }
-        for i in range(N):
-            src, corners, rays = get_geometry_at(i)
-            bezier = get_bezier_surface_points(i)
-            data["sources"].append(src)
-            data["detector_panels"].append(corners)
-            data["fov_rays"].append(rays)
-            data["full_trajectory"].append(src)
-            data["bezier_curves"].append(bezier)
-
-        with open(FULL_GEOM_JSON, "w") as f:
-            json.dump(data, f)
-
-        cached_full_trajectory = data["full_trajectory"]
-        with open(TRAJECTORY_JSON, "w") as f:
-            json.dump(cached_full_trajectory, f)
-
-        return {"status": "ok", "sample_dir": str(sample_dir), "frames": N}
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
 
 #########################################################
 # get_sinogram_slice (route)
@@ -890,6 +794,8 @@ def run_reconstruction(req: ReconRequest, request: Request):
     supported_methods = get_supported_methods()
     method = req.method.lower()
 
+    print(f"[INFO] Got reconstruction request: {req}")
+
     if method not in supported_methods:
         return JSONResponse(
             status_code=400,
@@ -928,6 +834,7 @@ def run_reconstruction(req: ReconRequest, request: Request):
     print("[INFO] Reconstruction finished with code:", proc.returncode)
 
     if proc.returncode != 0:
+        print(f"[ERROR] Reconstruction: {proc.stderr}")
         # bubble up some context to the client
         return JSONResponse(
             status_code=500,

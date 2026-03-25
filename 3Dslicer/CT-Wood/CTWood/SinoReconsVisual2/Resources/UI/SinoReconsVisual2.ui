@@ -20,8 +20,8 @@
      <verstretch>0</verstretch>
     </sizepolicy>
    </property>
-   <layout class="QVBoxLayout" name="mainLayout" stretch="0">
-    <item>
+   <layout class="QGridLayout" name="gridLayout_3">
+    <item row="0" column="0">
      <widget class="QScrollArea" name="scrollArea">
       <property name="widgetResizable">
        <bool>true</bool>
@@ -32,7 +32,7 @@
          <x>0</x>
          <y>0</y>
          <width>409</width>
-         <height>747</height>
+         <height>626</height>
         </rect>
        </property>
        <property name="sizePolicy">
@@ -41,141 +41,74 @@
          <verstretch>0</verstretch>
         </sizepolicy>
        </property>
-       <layout class="QVBoxLayout" name="contentsLayout" stretch="0,0,0,1,0,0,0">
+       <layout class="QVBoxLayout" name="contentsLayout" stretch="0,0,0">
         <item>
-         <widget class="QGroupBox" name="connectionGroup">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
+         <widget class="ctkCollapsibleGroupBox" name="connectToServerGroupBox">
           <property name="title">
            <string>Connect to server</string>
           </property>
-          <layout class="QGridLayout" name="connectionLayout">
-           <item row="0" column="0">
-            <widget class="QLabel" name="serverUrlLabel">
+          <property name="collapsedHeight">
+           <number>1</number>
+          </property>
+          <layout class="QGridLayout" name="gridLayout">
+           <item row="4" column="0">
+            <widget class="QLabel" name="selectSampleLabel">
+             <property name="enabled">
+              <bool>false</bool>
+             </property>
              <property name="text">
-              <string>Server HOST / IP </string>
+              <string>Select Sample</string>
              </property>
             </widget>
            </item>
-           <item row="0" column="1">
-            <widget class="QLineEdit" name="serverUrlLineEdit">
-             <property name="placeholderText">
-              <string/>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="0">
+           <item row="2" column="0">
             <widget class="QPushButton" name="connectToServerButton">
              <property name="text">
               <string>Connect to Server</string>
              </property>
             </widget>
            </item>
-           <item row="1" column="1">
+           <item row="2" column="1">
             <widget class="QLabel" name="statusLabel">
              <property name="text">
               <string>Status: Not connected</string>
              </property>
             </widget>
            </item>
-          </layout>
-         </widget>
-        </item>
-        <item>
-         <widget class="QGroupBox" name="selectionGroup">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-          <property name="title">
-           <string>Selections</string>
-          </property>
-          <layout class="QFormLayout" name="selectionLayout">
-           <item row="0" column="0">
-            <widget class="QLabel" name="label">
+           <item row="1" column="0">
+            <widget class="QLabel" name="serverUrlLabel">
+             <property name="toolTip">
+              <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;The url of the server with port number in the form https://some.server.se:8000&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+             </property>
              <property name="text">
-              <string>Select Container</string>
+              <string>Server HOST / IP </string>
              </property>
             </widget>
            </item>
-           <item row="0" column="1">
-            <widget class="QComboBox" name="containerSelectorComboBox"/>
-           </item>
-           <item row="1" column="0">
-            <widget class="QLabel" name="label">
-             <property name="text">
-              <string>Select Volume</string>
+           <item row="4" column="1">
+            <widget class="QComboBox" name="sampleSelectorComboBox">
+             <property name="enabled">
+              <bool>false</bool>
              </property>
             </widget>
            </item>
            <item row="1" column="1">
-            <widget class="QComboBox" name="volumeSelectorComboBox"/>
-           </item>
-           <item row="2" column="0">
-            <widget class="QLabel" name="label">
-             <property name="text">
-              <string>Select Sample</string>
+            <widget class="QLineEdit" name="serverUrlLineEdit">
+             <property name="placeholderText">
+              <string/>
              </property>
             </widget>
            </item>
-           <item row="2" column="1">
-            <widget class="QComboBox" name="sampleSelectorComboBox"/>
-           </item>
-           <item row="3" column="0">
-            <widget class="QLabel" name="label">
-             <property name="text">
-              <string>Select Reconstruction</string>
+           <item row="5" column="0" colspan="2">
+            <widget class="QPushButton" name="loadSampleButton">
+             <property name="enabled">
+              <bool>false</bool>
              </property>
-            </widget>
-           </item>
-           <item row="3" column="1">
-            <widget class="QComboBox" name="reconstructionSelectorComboBox"/>
-           </item>
-          </layout>
-         </widget>
-        </item>
-        <item>
-         <widget class="QGroupBox" name="fbpParameterGroupBox">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-          <property name="title">
-           <string>FBP Parameters</string>
-          </property>
-          <layout class="QGridLayout" name="fbpLayout">
-           <item row="0" column="0">
-            <widget class="QLabel" name="label_filterType">
-             <property name="text">
-              <string>Filter Type:</string>
+             <property name="toolTip">
+              <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Loads the selected sample in 3D Slicer.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
              </property>
-            </widget>
-           </item>
-           <item row="0" column="1">
-            <widget class="QComboBox" name="filterTypeComboBox"/>
-           </item>
-           <item row="1" column="0">
-            <widget class="QLabel" name="label_frequencyScaling">
              <property name="text">
-              <string>Frequency Scaling:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="1">
-            <widget class="QDoubleSpinBox" name="frequencyScalingSpinBox"/>
-           </item>
-           <item row="2" column="0" colspan="2">
-            <widget class="QCheckBox" name="paddingCheckBox">
-             <property name="text">
-              <string>Enable Padding</string>
+              <string>Load Sample</string>
              </property>
             </widget>
            </item>
@@ -183,227 +116,307 @@
          </widget>
         </item>
         <item>
-         <widget class="QGroupBox" name="landweberParameterGroupBox">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
+         <widget class="ctkCollapsibleGroupBox" name="sinogramGroupBox">
+          <property name="enabled">
+           <bool>true</bool>
           </property>
           <property name="title">
-           <string>Landweber Parameters</string>
+           <string>Sinogram</string>
           </property>
-          <layout class="QGridLayout" name="lwLayout">
-           <item row="0" column="0">
-            <widget class="QLabel" name="label_iterations">
-             <property name="sizePolicy">
-              <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-               <horstretch>0</horstretch>
-               <verstretch>0</verstretch>
-              </sizepolicy>
-             </property>
-             <property name="text">
-              <string>Iterations:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="0" column="1">
-            <widget class="QSpinBox" name="iterationsSpinBox">
-             <property name="sizePolicy">
-              <sizepolicy hsizetype="Minimum" vsizetype="Preferred">
-               <horstretch>0</horstretch>
-               <verstretch>0</verstretch>
-              </sizepolicy>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="0">
-            <widget class="QLabel" name="label_relaxation">
-             <property name="sizePolicy">
-              <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
-               <horstretch>0</horstretch>
-               <verstretch>0</verstretch>
-              </sizepolicy>
-             </property>
-             <property name="text">
-              <string>Relaxation:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="1">
-            <widget class="QDoubleSpinBox" name="relaxationSpinBox">
-             <property name="sizePolicy">
-              <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
-               <horstretch>0</horstretch>
-               <verstretch>0</verstretch>
-              </sizepolicy>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </widget>
-        </item>
-        <item>
-         <widget class="QGroupBox" name="remoteActionsGroup">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-          <property name="title">
-           <string>Remote action</string>
-          </property>
-          <layout class="QGridLayout" name="remoteLayout">
-           <item row="0" column="0">
-            <widget class="QPushButton" name="executeRemoteCommandButton">
-             <property name="text">
-              <string>Send Reconstruction Command</string>
-             </property>
-            </widget>
-           </item>
-           <item row="0" column="1">
-            <widget class="QPushButton" name="streamNrrdButton">
-             <property name="text">
-              <string>Load Remote Recons (NRRD)</string>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="0">
-            <widget class="QPushButton" name="loadSourceTrajectoryButton">
-             <property name="text">
-              <string>Load Remote Trajectories (VTP)</string>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </widget>
-        </item>
-        <item>
-         <widget class="QGroupBox" name="navigationGroup">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-          <property name="title">
-           <string>Navigation</string>
-          </property>
-          <layout class="QGridLayout" name="navLayout">
-           <item row="3" column="0">
-            <layout class="QHBoxLayout" name="indexSliderLayout">
-             <item>
-              <widget class="QSlider" name="indexSlider">
-               <property name="minimum">
-                <number>0</number>
-               </property>
-               <property name="maximum">
-                <number>0</number>
-               </property>
-               <property name="orientation">
-                <enum>Qt::Horizontal</enum>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QLabel" name="sliderIndexLabel">
-               <property name="text">
-                <string>Index: 0</string>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </item>
-           <item row="1" column="0">
-            <widget class="QPushButton" name="loadFullDatasetButton">
-             <property name="text">
-              <string>Load Full Dataset</string>
-             </property>
-            </widget>
-           </item>
-           <item row="0" column="0">
-            <widget class="QPushButton" name="fetchSinogramButton">
-             <property name="text">
-              <string>Fetch Sinogram Slice</string>
-             </property>
-            </widget>
-           </item>
-           <item row="4" column="0">
-            <layout class="QHBoxLayout" name="playButtonLayout">
-             <item>
-              <widget class="QPushButton" name="playButton">
-               <property name="sizePolicy">
-                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-                 <horstretch>0</horstretch>
-                 <verstretch>0</verstretch>
-                </sizepolicy>
-               </property>
-               <property name="text">
-                <string>Play</string>
-               </property>
-               <property name="checkable">
-                <bool>true</bool>
-               </property>
-               <property name="checked">
-                <bool>false</bool>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QSlider" name="playSpeedSlider">
-               <property name="minimum">
-                <number>1</number>
-               </property>
-               <property name="maximum">
-                <number>100</number>
-               </property>
-               <property name="orientation">
-                <enum>Qt::Horizontal</enum>
-               </property>
-               <property name="invertedAppearance">
-                <bool>false</bool>
-               </property>
-               <property name="tickPosition">
-                <enum>QSlider::TicksBelow</enum>
-               </property>
-               <property name="tickInterval">
-                <number>10</number>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QLabel" name="playSpeedLabel">
-               <property name="text">
-                <string>Speed: x1</string>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </item>
-          </layout>
-         </widget>
-        </item>
-        <item>
-         <widget class="QGroupBox" name="visualizationSettings">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-          <property name="title">
-           <string>Visualization settings</string>
-          </property>
-          <property name="flat">
+          <property name="collapsed">
            <bool>false</bool>
           </property>
-          <layout class="QGridLayout" name="visualizationSettingsLayout">
-           <item row="0" column="0">
-            <widget class="QCheckBox" name="showSinogramOnSensorCheckbox">
-             <property name="text">
-              <string>Show sinogram on sensor</string>
+          <property name="collapsedHeight">
+           <number>1</number>
+          </property>
+          <layout class="QGridLayout" name="gridLayout_2">
+           <item row="3" column="0">
+            <widget class="QWidget" name="sinogramWidget" native="true">
+             <property name="enabled">
+              <bool>false</bool>
              </property>
+             <layout class="QGridLayout" name="sinogramWidgetLayout">
+              <property name="leftMargin">
+               <number>0</number>
+              </property>
+              <property name="topMargin">
+               <number>0</number>
+              </property>
+              <property name="rightMargin">
+               <number>0</number>
+              </property>
+              <property name="bottomMargin">
+               <number>0</number>
+              </property>
+              <item row="0" column="0" colspan="2">
+               <widget class="QSlider" name="indexSlider">
+                <property name="minimum">
+                 <number>0</number>
+                </property>
+                <property name="maximum">
+                 <number>0</number>
+                </property>
+                <property name="orientation">
+                 <enum>Qt::Horizontal</enum>
+                </property>
+               </widget>
+              </item>
+              <item row="0" column="2">
+               <widget class="QLabel" name="sliderIndexLabel">
+                <property name="text">
+                 <string>Index: 0</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="0">
+               <widget class="QPushButton" name="playButton">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <property name="toolTip">
+                 <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Play animation of sinograms.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                </property>
+                <property name="text">
+                 <string>Play</string>
+                </property>
+                <property name="checkable">
+                 <bool>true</bool>
+                </property>
+                <property name="checked">
+                 <bool>false</bool>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QSlider" name="playSpeedSlider">
+                <property name="minimum">
+                 <number>1</number>
+                </property>
+                <property name="maximum">
+                 <number>100</number>
+                </property>
+                <property name="orientation">
+                 <enum>Qt::Horizontal</enum>
+                </property>
+                <property name="invertedAppearance">
+                 <bool>false</bool>
+                </property>
+                <property name="tickPosition">
+                 <enum>QSlider::TicksBelow</enum>
+                </property>
+                <property name="tickInterval">
+                 <number>10</number>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="2">
+               <widget class="QLabel" name="playSpeedLabel">
+                <property name="text">
+                 <string>Speed: x1</string>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="0" colspan="3">
+               <widget class="QGroupBox" name="visualizationSettings">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <property name="title">
+                 <string>Visualization settings</string>
+                </property>
+                <property name="flat">
+                 <bool>false</bool>
+                </property>
+                <layout class="QGridLayout" name="visualizationSettingsLayout">
+                 <item row="0" column="0">
+                  <widget class="QCheckBox" name="showSinogramOnSensorCheckbox">
+                   <property name="text">
+                    <string>Show sinogram on sensor</string>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="ctkCollapsibleGroupBox" name="reconstructionGroupBox">
+          <property name="enabled">
+           <bool>true</bool>
+          </property>
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="title">
+           <string>Reconstruction</string>
+          </property>
+          <property name="collapsedHeight">
+           <number>1</number>
+          </property>
+          <layout class="QFormLayout" name="formLayout">
+           <item row="0" column="0" colspan="2">
+            <widget class="QWidget" name="reconstructionWidget" native="true">
+             <property name="enabled">
+              <bool>false</bool>
+             </property>
+             <layout class="QFormLayout" name="reconstructionWidgetLayout">
+              <property name="leftMargin">
+               <number>0</number>
+              </property>
+              <property name="topMargin">
+               <number>0</number>
+              </property>
+              <property name="rightMargin">
+               <number>0</number>
+              </property>
+              <property name="bottomMargin">
+               <number>0</number>
+              </property>
+              <item row="0" column="0">
+               <widget class="QLabel" name="reconstructionMethodLabel">
+                <property name="text">
+                 <string>Reconstruction method</string>
+                </property>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QComboBox" name="reconstructionMethodComboBox"/>
+              </item>
+              <item row="1" column="0" colspan="2">
+               <widget class="QGroupBox" name="fbpParameterGroupBox">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <property name="title">
+                 <string>FBP Parameters</string>
+                </property>
+                <layout class="QFormLayout" name="formLayout_2">
+                 <item row="0" column="0">
+                  <widget class="QLabel" name="label_filterType">
+                   <property name="text">
+                    <string>Filter Type:</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="0" column="1">
+                  <widget class="QComboBox" name="filterTypeComboBox"/>
+                 </item>
+                 <item row="1" column="0">
+                  <widget class="QLabel" name="label_frequencyScaling">
+                   <property name="text">
+                    <string>Frequency Scaling:</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="1">
+                  <widget class="QDoubleSpinBox" name="frequencyScalingSpinBox"/>
+                 </item>
+                 <item row="2" column="0">
+                  <widget class="QCheckBox" name="paddingCheckBox">
+                   <property name="text">
+                    <string>Enable Padding</string>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </widget>
+              </item>
+              <item row="2" column="0" colspan="2">
+               <widget class="QGroupBox" name="landweberParameterGroupBox">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <property name="title">
+                 <string>Landweber Parameters</string>
+                </property>
+                <layout class="QFormLayout" name="formLayout_3">
+                 <item row="0" column="0">
+                  <widget class="QLabel" name="label_iterations">
+                   <property name="sizePolicy">
+                    <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                     <horstretch>0</horstretch>
+                     <verstretch>0</verstretch>
+                    </sizepolicy>
+                   </property>
+                   <property name="text">
+                    <string>Iterations:</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="0" column="1">
+                  <widget class="QSpinBox" name="iterationsSpinBox">
+                   <property name="sizePolicy">
+                    <sizepolicy hsizetype="Minimum" vsizetype="Preferred">
+                     <horstretch>0</horstretch>
+                     <verstretch>0</verstretch>
+                    </sizepolicy>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="0">
+                  <widget class="QLabel" name="label_relaxation">
+                   <property name="sizePolicy">
+                    <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                     <horstretch>0</horstretch>
+                     <verstretch>0</verstretch>
+                    </sizepolicy>
+                   </property>
+                   <property name="text">
+                    <string>Relaxation:</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="1">
+                  <widget class="QDoubleSpinBox" name="relaxationSpinBox">
+                   <property name="sizePolicy">
+                    <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+                     <horstretch>0</horstretch>
+                     <verstretch>0</verstretch>
+                    </sizepolicy>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </widget>
+              </item>
+              <item row="3" column="0" colspan="2">
+               <widget class="QPushButton" name="runReconstructionButton">
+                <property name="text">
+                 <string>Run reconstruction</string>
+                </property>
+               </widget>
+              </item>
+              <item row="4" column="0" colspan="2">
+               <widget class="QPushButton" name="loadReconstructionDataButton">
+                <property name="enabled">
+                 <bool>false</bool>
+                </property>
+                <property name="text">
+                 <string>Load reconstruction data</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
             </widget>
            </item>
           </layout>
@@ -427,6 +440,14 @@
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
  </widget>
+ <customwidgets>
+  <customwidget>
+   <class>ctkCollapsibleGroupBox</class>
+   <extends>QGroupBox</extends>
+   <header>ctkCollapsibleGroupBox.h</header>
+   <container>1</container>
+  </customwidget>
+ </customwidgets>
  <resources/>
  <connections/>
 </ui>

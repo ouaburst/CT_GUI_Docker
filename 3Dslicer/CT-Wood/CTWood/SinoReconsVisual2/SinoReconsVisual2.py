@@ -33,9 +33,6 @@ from slicer.ScriptedLoadableModule import *
 from slicer.util import VTKObservationMixin
 from qt import QTimer
 
-
-cached_full_trajectory = None
-
 # -----------------------------
 # Settings helpers
 # -----------------------------
@@ -137,15 +134,16 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
         # Connect signals to slots
         self.ui.indexSlider.valueChanged.connect(self.onIndexChanged)
-        self.ui.indexSlider.valueChanged.connect(self.onSliderChanged)
 
-        self.ui.executeRemoteCommandButton.clicked.connect(self.onExecuteRemoteCommandClicked)
-        self.ui.streamNrrdButton.clicked.connect(self.onStreamNrrdButtonClicked)
         self.ui.connectToServerButton.clicked.connect(self.onConnectToServerClicked)
-        self.ui.reconstructionSelectorComboBox.currentTextChanged.connect(self.onReconstructionMethodChanged)
-        self.ui.loadSourceTrajectoryButton.clicked.connect(self.onLoadSourceTrajectoryClicked)
-        self.ui.loadFullDatasetButton.clicked.connect(self.onLoadFullDataset)
-        self.ui.fetchSinogramButton.clicked.connect(self.onFetchSinogramSliceClicked)
+        self.ui.loadSampleButton.clicked.connect(self.loadSelectedSample)
+
+        # FIXME: Change callback function names
+        self.ui.runReconstructionButton.clicked.connect(self.onExecuteRemoteCommandClicked)
+        self.ui.loadReconstructionDataButton.clicked.connect(self.onStreamNrrdButtonClicked)
+
+        # FIXME: Change to currentIndexChanged...
+        self.ui.reconstructionMethodComboBox.currentTextChanged.connect(self.onReconstructionMethodChanged)
         self.ui.showSinogramOnSensorCheckbox.stateChanged.connect(self.setImageOnSensor)
 
         self.ui.playButton.toggled.connect(self.playButtonToggled)
@@ -158,7 +156,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.sliderDebounceTimer = QTimer()
         self.sliderDebounceTimer.setSingleShot(True)
         self.sliderDebounceTimer.setInterval(1)  # milliseconds
-        self.sliderDebounceTimer.timeout.connect(self.onFetchSinogramSliceClicked)
+        self.sliderDebounceTimer.timeout.connect(self.loadPreviewSlice)
 
         # Timer to debounce loading full detail (float32) slice
         self.fullDetailDebounceTimer = QTimer()
@@ -279,7 +277,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             return
 
         # Method + parameters
-        method = (self.ui.reconstructionSelectorComboBox.currentText or "").lower()
+        method = (self.ui.reconstructionMethodComboBox.currentText or "").lower()
         params = {}
 
         if method == "fbp":
@@ -401,15 +399,15 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.session = requests.Session()
 
             # Populate container/volume for completeness (from config)
-            container_name = config.get("container_name", "")
-            self.ui.containerSelectorComboBox.clear()
-            if container_name:
-                self.ui.containerSelectorComboBox.addItem(container_name)
+            #container_name = config.get("container_name", "")
+            #self.ui.containerSelectorComboBox.clear()
+            #if container_name:
+            #    self.ui.containerSelectorComboBox.addItem(container_name)
 
-            volume_name = config.get("volume_name", "")
-            self.ui.volumeSelectorComboBox.clear()
-            if volume_name:
-                self.ui.volumeSelectorComboBox.addItem(volume_name)
+            #volume_name = config.get("volume_name", "")
+            #self.ui.volumeSelectorComboBox.clear()
+            #if volume_name:
+            #    self.ui.volumeSelectorComboBox.addItem(volume_name)
 
             # Populate sample combo box
             samples = config.get("samples", [])
@@ -417,16 +415,19 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             for sample in samples:
                 # expect keys: specie, tree_ID, disk_ID
                 sample_text = f"Tree {sample['tree_ID']} - Disk {sample['disk_ID']}"
-                self.ui.sampleSelectorComboBox.addItem(sample_text)
+                self.ui.sampleSelectorComboBox.addItem(sample_text, sample)
+            self.ui.selectSampleLabel.setEnabled(True)
+            self.ui.sampleSelectorComboBox.setEnabled(True)
+            self.ui.loadSampleButton.setEnabled(True)
 
             # Populate reconstruction methods
             recons = config.get("reconstruction_methods", [])
-            self.ui.reconstructionSelectorComboBox.clear()
+            self.ui.reconstructionMethodComboBox.clear()
             for r in recons:
-                self.ui.reconstructionSelectorComboBox.addItem(r)
+                self.ui.reconstructionMethodComboBox.addItem(r)
 
             # Initial visibility for parameter groups
-            selected_method = self.ui.reconstructionSelectorComboBox.currentText
+            selected_method = self.ui.reconstructionMethodComboBox.currentText
             self.onReconstructionMethodChanged(selected_method)
 
             # FBP params
@@ -456,31 +457,65 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.ui.relaxationSpinBox.setSingleStep(relax.get("step", 0.01))
             self.ui.relaxationSpinBox.setValue(relax.get("default", 0.2))
 
-            self.ui.statusLabel.setText("Status: Connected")
+            self.ui.statusLabel.setText('Status: <font color="green">Connected</font>')
 
         except requests.exceptions.RequestException as e:
-            self.ui.statusLabel.setText("Status: Failed to connect")
+            self.ui.statusLabel.setText('Status: <font color="red">Failed to connect</font>')
             slicer.util.errorDisplay(f"Could not fetch config from:\n{config_url}\n\n{e}", windowTitle="Connection Error")
 
-    def onLoadSourceTrajectoryClicked(self):
+    def loadSelectedSample(self):
         try:
             self.clearModels()
             base = self._currentBaseUrl()
-            # If you later export VTPs to /files/, list them here:
-            stream_vtp_from_url([
-                "fov_rays.vtp",
-                "source_path.vtp",
-                "detector_path.vtp"
-            ], base)
-        except Exception as e:
-            slicer.util.errorDisplay(f"Failed to load geometry: {e}")
 
-    def onSliderChanged(self, value):
-        self.ui.sliderIndexLabel.setText(f"Index: {value}")
-        start = time.time()
-        self.updateSceneData(value)
-        end = time.time()
-        print(f"[DEBUG] updateSceneData took {end - start} seconds")
+            sample = self.ui.sampleSelectorComboBox.currentData
+            print(f"Selecting sample: {sample["specie"]} {sample["tree_ID"]} {sample["disk_ID"]}")
+
+            url = f"{base}/select_sample"
+            start = time.time()
+            payload = { "specie": sample["specie"], "tree_ID": int(sample["tree_ID"]), "disk_ID": int(sample["disk_ID"]) }
+            response = requests.post(url, json=payload, timeout=300)  # Up to 5 minutes
+            if response.status_code != 200:
+                self.ui.sinogramWidget.setEnabled(True)
+                self.ui.reconstructionWidget.setEnabled(True)
+                self.ui.statusLabel.setText('Status: <font color="red">Failed to load sample</font>')
+                slicer.util.errorDisplay(f"Failed to load sample {response.status_code}\n{response.content}")
+            response_json = response.json()
+            self.sinogramMin = response_json["sinogram_min"]
+            self.sinogramMax = response_json["sinogram_max"]
+            end = time.time()
+            print(f"[INFO] Selecting sample took: {end-start} seconds")
+
+            url = f"{base}/full_geometry"
+            start = time.time()
+            response = requests.get(url, timeout=300)  # Up to 5 minutes
+            response.raise_for_status()
+            self.fullGeometryData = response.json()
+            end = time.time()
+
+            total_frames = len(self.fullGeometryData.get("sources", []))
+
+            print(f"[INFO] Loaded full geometry: "
+                  f"{total_frames} sources, "
+                  f"{len(self.fullGeometryData.get('detector_panels', []))} panels "
+                  f"in {end - start} seconds")
+
+            # Configure slider
+            self.ui.indexSlider.setMinimum(0)
+            self.ui.indexSlider.setMaximum(max(0, total_frames - 1))
+            self.ui.indexSlider.setValue(0)
+            self.ui.sliderIndexLabel.setText("Index: 0")
+
+            # Load first frame
+            self.sceneObjects = self.createSceneObjects()
+            self.onIndexChanged(0)
+            self.setImageOnSensor(self.ui.showSinogramOnSensorCheckbox.checkState())
+
+            self.ui.sinogramWidget.setEnabled(True)
+            self.ui.reconstructionWidget.setEnabled(True)
+
+        except Exception as e:
+            slicer.util.errorDisplay(f"Failed to load full dataset:\n{e}")
 
     def printCameraDebugInfo(self, cameraNode, label=""):
         pos = cameraNode.GetPosition()
@@ -536,7 +571,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         sceneObjects.sensorModelDisplay.SetVisibility(1)
         sceneObjects.sensorModelDisplay.SetRepresentation(2)          # Surface
         sceneObjects.sensorModelDisplay.SetEdgeVisibility(False)      # Hide edges
-        sceneObjects.sensorModelDisplay.SetInterpolation(1)           # Phong
+        sceneObjects.sensorModelDisplay.SetLighting(0)                # Disable lighting
         sceneObjects.sensorModelDisplay.SetBackfaceCulling(False)     # Render both sides
         sceneObjects.sensorModelImage = vtk.vtkImageData()
         sceneObjects.sensorModelImageProducer = vtk.vtkTrivialProducer()
@@ -704,63 +739,19 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.sceneObjects.sensorModelDisplay.SetInterpolation(1) # Phong
 
     # -----------------------------
-    # Full dataset workflow
-    # -----------------------------
-    def onLoadFullDataset(self):
-        try:
-            self.clearModels()
-            base = self._currentBaseUrl()
-            url = f"{base}/full_geometry"
-            start = time.time()
-            response = requests.get(url, timeout=300)  # Up to 5 minutes
-            response.raise_for_status()
-            self.fullGeometryData = response.json()
-            end = time.time()
-
-            total_frames = len(self.fullGeometryData.get("sources", []))
-
-            print(f"[INFO] Loaded full geometry: "
-                  f"{total_frames} sources, "
-                  f"{len(self.fullGeometryData.get('detector_panels', []))} panels "
-                  f"in {end - start} seconds")
-
-            # Configure slider
-            self.ui.indexSlider.setMinimum(0)
-            self.ui.indexSlider.setMaximum(max(0, total_frames - 1))
-            self.ui.indexSlider.setValue(0)
-            self.ui.sliderIndexLabel.setText("Index: 0")
-
-            # Load first frame
-            self.sceneObjects = self.createSceneObjects()
-            self.updateSceneData(0)
-            self.onFetchSinogramSliceClicked()
-            self.setImageOnSensor(self.ui.showSinogramOnSensorCheckbox.checkState())
-
-        except Exception as e:
-            slicer.util.errorDisplay(f"Failed to load full dataset:\n{e}")
-
-    # -----------------------------
     # Slider / sinogram fetch
     # -----------------------------
-    def onIncreaseWindow(self):
-        self.currentIndex += 20
-        if hasattr(self, "fullGeometryData"):
-            self.updateSceneData(self.currentIndex)
-
-    def onDecreaseWindow(self):
-        self.currentIndex = max(0, self.currentIndex - 20)
-        if hasattr(self, "fullGeometryData"):
-            self.updateSceneData(self.currentIndex)
-
     def onIndexChanged(self, value):
         self.currentIndex = value
-        if hasattr(self.ui, "windowSizeLabel"):
-            self.ui.windowSizeLabel.setText(f"Index: {value}")
+        self.ui.sliderIndexLabel.setText(f"Index: {value}")
+        start = time.time()
+        self.updateSceneData(value)
+        end = time.time()
+        print(f"[DEBUG] updateSceneData took {end - start} seconds")
         self.sliderDebounceTimer.start()
         self.fullDetailDebounceTimer.start()
-        #self.onFetchSinogramSliceClicked()
 
-    def onFetchSinogramSliceClicked(self):
+    def loadPreviewSlice(self):
         try:
             index = self.currentIndex
             base = self._currentBaseUrl()
@@ -785,6 +776,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             else:
                 self.volume_node = slicer.util.addVolumeFromArray(img_data[:, :, np.newaxis])
                 self.volume_node.name = f"Preview sinogram"
+            self.volume_node.GetDisplayNode().SetAutoWindowLevel(False)
+            self.volume_node.GetDisplayNode().SetWindowLevelMinMax(0, 255)
             end = time.time()
             print(f"[DEBUG] Adding/modifying volume took: {end - start} s")
 
@@ -850,6 +843,12 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             else:
                 self.full_detail_volume_node = slicer.util.addVolumeFromArray(data)
                 self.full_detail_volume_node.name = f"Full detail sinogram"
+            if hasattr(self, "sinogramMin") and hasattr(self, "sinogramMax"):
+                self.full_detail_volume_node.GetDisplayNode().SetAutoWindowLevel(False)
+                self.full_detail_volume_node.GetDisplayNode().SetWindowLevelMinMax(self.sinogramMin, self.sinogramMax)
+            else:
+                print("[WARNING] Did not have sinogram min/max data, using auto window level.")
+                self.full_detail_volume_node.GetDisplayNode().SetAutoWindowLevel(True)
             end = time.time()
             print(f"[DEBUG] Adding/modifying volume took: {end - start} s")
 
@@ -892,11 +891,11 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 # HTTP helpers (use saved base URL)
 # -----------------------------
 def stream_nrrd_from_url(filename, base_url: Optional[str] = None):
+    base = normalize_base_url(base_url or get_saved_base_url())
+    url = f"{base}/images/{filename}"
+    temp_file_path = os.path.join(slicer.app.temporaryPath, filename)
+    
     try:
-        base = normalize_base_url(base_url or get_saved_base_url())
-        url = f"{base}/images/{filename}"
-        temp_file_path = os.path.join(slicer.app.temporaryPath, filename)
-
         response = requests.head(url)
         response.raise_for_status()
 

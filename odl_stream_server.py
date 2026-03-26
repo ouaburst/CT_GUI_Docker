@@ -163,12 +163,8 @@ def _load_sample_data(sample_dir: Path):
     pix_size_det = float(metadata["DET_PIX_SIZE"])
 
     # The angles are all mod 2PI so we need to undo this operation
-    # by finding the wrapping points and add 2PI to all angles after that point.
-    # - Julius Häger 2026-03-17
-    wrapping_points = np.nonzero(np.ediff1d(angles_raw, to_begin=False) < 0)[0]
-    angles_increasing = np.copy(angles_raw)
-    for w in wrapping_points:
-        angles_increasing[w:] += 2 * np.pi
+    # - Julius Häger 2026-03-26
+    angles_increasing = np.unwrap(angles_raw)
 
     # Estimate helical pitch (z advance per full 2π revolution)
     angle_range = float(angles_increasing[-1] - angles_increasing[0])
@@ -185,7 +181,7 @@ def _load_sample_data(sample_dir: Path):
         [metadata["DET_NPX_X"], metadata["DET_NPX_Z"]],
     )
 
-    # Keep an angle→z interpolation (currently not plugged into src_shift_func)
+    # Keep an angle→z interpolation
     z_shift_func = interp1d(
         angles_increasing, z_corrected, kind="linear",
         bounds_error=False, fill_value=(z_corrected[0], z_corrected[-1]) # type: ignore The function has a special case for fill_value being a 2-tuple.

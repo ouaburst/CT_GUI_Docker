@@ -102,6 +102,10 @@ class Vtk3DSceneObjects:
     trajectoryModel: slicer.vtkMRMLModelNode
     trajectoryModelDisplay: slicer.vtkMRMLModelDisplayNode
 
+    sinogramOutline: vtk.vtkOutlineSource
+    sinogramOutlineNode: slicer.vtkMRMLModelNode
+    sinogramOutlineDisplay: slicer.vtkMRMLModelDisplayNode
+
     def __init__(self):
         pass
         
@@ -588,6 +592,21 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         sceneObjects.trajectoryModelDisplay.SetLineWidth(2)
         sceneObjects.trajectoryModelDisplay.SetVisibility(1)
 
+        yellowViewNodeID = slicer.app.layoutManager().sliceWidget("Yellow").mrmlSliceNode().GetID()
+
+        # For the sinogram outline we project a cube outline to the slice only in the Yellow view.
+        # - Julius Häger 2026-03-27
+        sceneObjects.sinogramOutline = vtk.vtkOutlineSource()
+        sceneObjects.sinogramOutline.SetBounds(-3, 3, 0, 50, 0, 50)
+        sceneObjects.sinogramOutlineNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", "Sinogram Outline")
+        sceneObjects.sinogramOutlineNode.SetPolyDataConnection(sceneObjects.sinogramOutline.GetOutputPort())
+        sceneObjects.sinogramOutlineDisplay = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
+        sceneObjects.sinogramOutlineNode.SetAndObserveDisplayNodeID(sceneObjects.sinogramOutlineDisplay.GetID())
+        sceneObjects.sinogramOutlineDisplay.SetViewNodeIDs([yellowViewNodeID])
+        sceneObjects.sinogramOutlineDisplay.SetSliceDisplayModeToProjection()
+        sceneObjects.sinogramOutlineDisplay.Visibility3DOff()
+        sceneObjects.sinogramOutlineDisplay.Visibility2DOn()
+
         return sceneObjects
 
     def destroySceneObjects(self):
@@ -778,8 +797,15 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 self.volume_node.name = f"Preview sinogram"
             self.volume_node.GetDisplayNode().SetAutoWindowLevel(False)
             self.volume_node.GetDisplayNode().SetWindowLevelMinMax(0, 255)
+
+            # Update outline bounds.
+            bounds = np.empty(6)
+            self.volume_node.GetBounds(bounds)
+            self.sceneObjects.sinogramOutline.SetBounds(*bounds)
+            
             end = time.time()
             print(f"[DEBUG] Adding/modifying volume took: {end - start} s")
+
 
             start = time.time()
             self.sceneObjects.sensorModelImage.SetDimensions(img_data.shape[1], img_data.shape[0], 1)
@@ -849,6 +875,12 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             else:
                 print("[WARNING] Did not have sinogram min/max data, using auto window level.")
                 self.full_detail_volume_node.GetDisplayNode().SetAutoWindowLevel(True)
+            
+            # Update outline bounds.
+            bounds = np.empty(6)
+            self.volume_node.GetBounds(bounds)
+            self.sceneObjects.sinogramOutline.SetBounds(*bounds)
+
             end = time.time()
             print(f"[DEBUG] Adding/modifying volume took: {end - start} s")
 

@@ -780,37 +780,47 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             end = time.time()
             print(f"[DEBUG] Download (fast) took {end-start} s {len(response_fast.content)/1000} kb")
 
+            sliceMin = np.float32(response_fast.headers["slice_min"])
+            sliceMax = np.float32(response_fast.headers["slice_max"])
+
             start = time.time()
             img = PIL.Image.open(io.BytesIO(response_fast.content))
             img_data = np.array(img)
+            img_data_mapped = img_data * ((sliceMax - sliceMin) / np.float32(255.0)) + sliceMin
             end = time.time()
-            print(f"[DEBUG] Decoding image took {end-start} s {img.size} {img.mode} {img_data.shape} {img_data.dtype}")
+            print(f"[DEBUG] Decoding image took {end-start} s {img.size} {img.mode} {img_data_mapped.shape} {img_data_mapped.dtype}")
 
             start = time.time()
             if hasattr(self, 'volume_node') and self.volume_node:
                 voxel_data = slicer.util.arrayFromVolume(self.volume_node)
-                #print(f"voxel_data shape: {voxel_data.shape}")
-                voxel_data[:,:,0] = img_data
+                #print(f"voxel_data shape: {voxel_data.shape} {voxel_data.dtype}")
+                voxel_data[:,:,0] = img_data_mapped
                 slicer.util.arrayFromVolumeModified(self.volume_node)
             else:
-                self.volume_node = slicer.util.addVolumeFromArray(img_data[:, :, np.newaxis])
+                self.volume_node = slicer.util.addVolumeFromArray(img_data_mapped[:, :, np.newaxis])
                 self.volume_node.name = f"Preview sinogram"
-            self.volume_node.GetDisplayNode().SetAutoWindowLevel(False)
-            self.volume_node.GetDisplayNode().SetWindowLevelMinMax(0, 255)
+
+            if hasattr(self, "sinogramMin") and hasattr(self, "sinogramMax"):
+                self.volume_node.GetDisplayNode().SetAutoWindowLevel(False)
+                self.volume_node.GetDisplayNode().SetWindowLevelMinMax(self.sinogramMin, self.sinogramMax)
+            else:
+                print("[WARNING] Did not have sinogram min/max data, using auto window level.")
+                self.volume_node.GetDisplayNode().SetAutoWindowLevel(True)
 
             # Update outline bounds.
             bounds = np.empty(6)
             self.volume_node.GetBounds(bounds)
             self.sceneObjects.sinogramOutline.SetBounds(*bounds)
-            
+
             end = time.time()
             print(f"[DEBUG] Adding/modifying volume took: {end - start} s")
 
-
             start = time.time()
-            self.sceneObjects.sensorModelImage.SetDimensions(img_data.shape[1], img_data.shape[0], 1)
+            tex_data = (np.iinfo(np.uint8).max * (img_data_mapped - self.sinogramMin) / (self.sinogramMax - self.sinogramMin)).astype(np.uint8)
+
+            self.sceneObjects.sensorModelImage.SetDimensions(tex_data.shape[1], tex_data.shape[0], 1)
             # FIXME: Do not allocate a new VTK arrray, update the existing one if possible!
-            vtk_array = numpy_to_vtk(img_data.reshape(img_data.shape[0] * img_data.shape[1], 1), 1, vtk.VTK_UNSIGNED_CHAR)
+            vtk_array = numpy_to_vtk(tex_data.reshape(tex_data.shape[0] * tex_data.shape[1], 1), 1, vtk.VTK_UNSIGNED_CHAR)
             #print(vtk_array)
             self.sceneObjects.sensorModelImage.GetPointData().SetScalars(vtk_array)
             end = time.time()
@@ -863,12 +873,13 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             start = time.time()
             if hasattr(self, 'full_detail_volume_node') and self.full_detail_volume_node:
                 voxel_data = slicer.util.arrayFromVolume(self.full_detail_volume_node)
-                print(f"voxel_data shape: {voxel_data.shape} {voxel_data.dtype}")
+                #print(f"voxel_data shape: {voxel_data.shape} {voxel_data.dtype}")
                 voxel_data[:,:,:] = data
                 slicer.util.arrayFromVolumeModified(self.full_detail_volume_node)
             else:
                 self.full_detail_volume_node = slicer.util.addVolumeFromArray(data)
                 self.full_detail_volume_node.name = f"Full detail sinogram"
+
             if hasattr(self, "sinogramMin") and hasattr(self, "sinogramMax"):
                 self.full_detail_volume_node.GetDisplayNode().SetAutoWindowLevel(False)
                 self.full_detail_volume_node.GetDisplayNode().SetWindowLevelMinMax(self.sinogramMin, self.sinogramMax)
@@ -878,24 +889,11 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             
             # Update outline bounds.
             bounds = np.empty(6)
-            self.volume_node.GetBounds(bounds)
+            self.full_detail_volume_node.GetBounds(bounds)
             self.sceneObjects.sinogramOutline.SetBounds(*bounds)
 
             end = time.time()
             print(f"[DEBUG] Adding/modifying volume took: {end - start} s")
-
-            # FIXME: Because we send float data VTK decides that it needs to apply
-            # some kind of color map to the data, resulting in a non-grayscale result.
-            # I need to figure out how to make this be a gray-scale thing.
-            # - Julius Häger 2026-03-13
-            #start = time.time()
-            #self.sceneObjects.sensorModelImage.SetDimensions(data.shape[1], data.shape[0], 1)
-            ## FIXME: Do not allocate a new VTK arrray, update the existing one if possible!
-            #vtk_array = numpy_to_vtk(data.reshape(data.shape[0] * data.shape[1], 1), 1, vtk.VTK_FLOAT)
-            ##print(vtk_array)
-            #self.sceneObjects.sensorModelImage.GetPointData().SetScalars(vtk_array)
-            #end = time.time()
-            #print(f"[DEBUG] Updating sensor texture took: {end - start} s")
 
             if self.full_detail_volume_node:
                 for view in ["Red", "Green", "Yellow"]:

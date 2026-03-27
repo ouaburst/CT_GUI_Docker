@@ -647,18 +647,28 @@ def compress_sinogram_slice_jp2(i):
     sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
     if Path.exists(sample_sinogram_cache_dir / f"{i}.jp2") == False:
         slice_2d = slice_2d = sinogram[i, :, :].T
-        img_data = np.iinfo(np.uint8).max * (slice_2d - sinogramMin) / (sinogramMax - sinogramMin)
+        slice_min = np.min(slice_2d)
+        slice_max = np.max(slice_2d)
+        img_data = np.iinfo(np.uint8).max * (slice_2d - slice_min) / (slice_max - slice_min)
         im = PIL.Image.fromarray(img_data.astype(np.uint8))
         im.save(sample_sinogram_cache_dir / f"{i}.jp2", format="", irreversible=True, quality_mode="dB", quality_layers=[44])
+        # Save the dynamic range of the jp2 file so we can recover the correct values in the client
+        with open(sample_sinogram_cache_dir / f"{i}.jp2.json", 'w') as f:
+            json.dump({ "slice_min": repr(float(slice_min)), "slice_max": repr(float(slice_max)) }, f)
 
 def compress_sinogram_slice_avif(i):
     global sample_name, sinogramMin, sinogramMax
     sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
     if Path.exists(sample_sinogram_cache_dir / f"{i}.avif") == False:
         slice_2d = slice_2d = sinogram[i, :, :].T
-        img_data = np.iinfo(np.uint8).max * (slice_2d - sinogramMin) / (sinogramMax - sinogramMin)
+        slice_min = np.min(slice_2d)
+        slice_max = np.max(slice_2d)
+        img_data = np.iinfo(np.uint8).max * (slice_2d - slice_min) / (slice_max - slice_min)
         im = PIL.Image.fromarray(img_data.astype(np.uint8))
         im.save(sample_sinogram_cache_dir / f"{i}.avif", format="", max_threads=1, quality=57, speed=7, subsampling="4:0:0")
+        # Save the dynamic range of the avif file so we can recover the correct values in the client
+        with open(sample_sinogram_cache_dir / f"{i}.avif.json", 'w') as f:
+            json.dump({ "slice_min": repr(float(slice_min)), "slice_max": repr(float(slice_max)) }, f)
 
 #########################################################
 # get_sinogram_slice (route)
@@ -718,7 +728,7 @@ def get_sinogram_slice(index: int):
 
 #########################################################
 # get_sinogram_slice_fast (route)
-# Export a single projection as a JPEG 2000 image (approx 5kb)
+# Export a single projection as a JPEG 2000 image
 #########################################################
 @app.get("/get_sinogram_slice_fast/{index}")
 def get_sinogram_slice_fast(index: int):
@@ -728,9 +738,15 @@ def get_sinogram_slice_fast(index: int):
     print("[DEBUG] Cache dir:", sample_sinogram_cache_dir)
 
     file = f"{index}.jp2"
-    return FileResponse(sample_sinogram_cache_dir / file, media_type="image/jp2", filename=file)
+    meta_file = f"{index}.jp2.json"
+    with open(sample_sinogram_cache_dir / meta_file) as f:
+        headers = json.load(f)
+    return FileResponse(sample_sinogram_cache_dir / file, media_type="image/jp2", filename=file, headers=headers)
     
     #file = f"{index}.avif"
+    #meta_file = f"{index}.avif.json"
+    #with open(sample_sinogram_cache_dir / meta_file) as f:
+    #    headers = json.load(f)
     #return FileResponse(sample_sinogram_cache_dir / file, media_type="image/avif", filename=file)
 
 # ----- Run reconstruction inside this container (no SSH/Apptainer)

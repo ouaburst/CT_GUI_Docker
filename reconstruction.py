@@ -1,5 +1,3 @@
-# Script filename: reconstruction.py
-
 """
 Purpose:
 This script reconstructs a CT volume of a specified tree disk from the MITO dataset.
@@ -66,14 +64,12 @@ def main():
     # Print selected configuration
     _progress(f"Tree ID: {args.tree_ID}")
     _progress(f"Disk ID: {args.disk_ID}")
-    _progress(f"Output folder (requested): {args.output_folder}")
+    _progress(f"Output folder: {args.output_folder}")
     _progress(f"Reconstruction Method: {args.reconstruction_method}")
     _progress(f"Parameters: {args.parameters}")
 
     # Create output directory if it does not exist
-    output_folder = os.path.abspath(args.output_folder)
-    os.makedirs(output_folder, exist_ok=True)
-    _progress(f"Output folder (absolute): {output_folder}")
+    os.makedirs(args.output_folder, exist_ok=True)
 
     # Parse parameters JSON
     try:
@@ -105,22 +101,9 @@ def main():
                 _progress("[ADJ] Done.")
 
             elif args.reconstruction_method == 'fbp':
-                _progress("[FBP] Preparing operator …")
-
-                # Debug information for geometry verification before building FBP
-                _progress(f"[DEBUG] A.domain: {sample['A'].domain}")
-                _progress(f"[DEBUG] A.range: {sample['A'].range}")
-                _progress(f"[DEBUG] geometry: {sample['A'].geometry}")
-                _progress(f"[DEBUG] pitch: {getattr(sample['A'].geometry, 'pitch', None)}")
-                _progress(f"[DEBUG] src_radius: {getattr(sample['A'].geometry, 'src_radius', None)}")
-                _progress(f"[DEBUG] det_radius: {getattr(sample['A'].geometry, 'det_radius', None)}")
-                _progress(f"[DEBUG] motion_partition: {sample['A'].geometry.motion_partition}")
-                _progress(f"[DEBUG] detector_partition: {sample['A'].geometry.det_partition}")
-
                 _progress("[FBP] Building FBP operator …")
                 # ODL builds a filtered-backprojection operator compatible with A
                 fbp_op = odl.tomo.fbp_op(sample['A'], **params)
-
                 _progress("[FBP] Filtering/backprojecting …")
                 reconstruction = fbp_op(sample['sinogram'])
                 _progress("[FBP] Done.")
@@ -171,18 +154,11 @@ def main():
             # Extract voxel sizes from the reconstruction space
             sx, sy, sz = reconstruction.space.cell_sides
 
-            # Debug information for verifying geometry and axis ordering
-            _progress(f"reconstruction_np.shape: {reconstruction_np.shape}")
-            _progress(f"Voxel spacing (sx, sy, sz): ({sx}, {sy}, {sz})")
-            _progress(f"Reconstruction min_pt: {tuple(reconstruction.space.min_pt)}")
-            _progress(f"Reconstruction max_pt: {tuple(reconstruction.space.max_pt)}")
-
             # Prepare NRRD header information
             header = {
                 'space': 'left-posterior-superior',
-                'sizes': reconstruction_np.shape,
+                'sizes': reconstruction_np.shape,                 # (nx, ny, nz)
                 'space directions': [(sx, 0, 0), (0, sy, 0), (0, 0, sz)],
-                'space origin': tuple(reconstruction.space.min_pt),
                 'kinds': ['domain', 'domain', 'domain'],
                 'endian': 'little',
                 'encoding': 'raw'
@@ -190,7 +166,7 @@ def main():
 
             # Save the reconstructed volume as an NRRD file with method name
             output_filename = f"tree{args.tree_ID}_disk{args.disk_ID}_{args.reconstruction_method}.nrrd"
-            output_path = os.path.join(output_folder, output_filename)
+            output_path = os.path.join(args.output_folder, output_filename)
 
             nrrd.write(output_path, reconstruction_np, header)
             _progress(f"Saved NRRD volume to {output_path}.")
@@ -198,7 +174,6 @@ def main():
     else:
         # Loop finished without 'break': sample not found
         raise FileNotFoundError(f"No sample matched tree_ID={args.tree_ID} and disk_ID={args.disk_ID}")
-
 
 #########################################################
 # Entrypoint

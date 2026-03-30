@@ -142,6 +142,10 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.ui.connectToServerButton.clicked.connect(self.onConnectToServerClicked)
         self.ui.loadSampleButton.clicked.connect(self.loadSelectedSample)
 
+        self.ui.metadataGroupBox.visible = False
+        self.ui.metadataGroupBox.collapsed = True
+        self.ui.metadataTableWidget.setEditTriggers(0) # No editing
+
         # FIXME: Change callback function names
         self.ui.runReconstructionButton.clicked.connect(self.onExecuteRemoteCommandClicked)
         self.ui.loadReconstructionDataButton.clicked.connect(self.onStreamNrrdButtonClicked)
@@ -517,6 +521,23 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
             self.ui.sinogramWidget.setEnabled(True)
             self.ui.reconstructionWidget.setEnabled(True)
+
+            sample_metadata = response_json["metadata"]
+
+            self.ui.metadataGroupBox.visible = True
+            self.ui.metadataTableWidget.clear()
+            self.ui.metadataTableWidget.setRowCount(0)
+            self.ui.metadataTableWidget.setHorizontalHeaderLabels(["Name", "Value"])
+            self.ui.metadataTableWidget.sortingEnabled = False
+            for key, value in sample_metadata.items():
+                self.ui.metadataTableWidget.insertRow(0)
+                nameItem = qt.QTableWidgetItem()
+                nameItem.setText(key)
+                self.ui.metadataTableWidget.setItem(0, 0, nameItem)
+                valueItem = qt.QTableWidgetItem()
+                valueItem.setText(value)
+                self.ui.metadataTableWidget.setItem(0, 1, valueItem)
+            self.ui.metadataTableWidget.sortingEnabled = True
 
         except Exception as e:
             slicer.util.errorDisplay(f"Failed to load full dataset:\n{e}")

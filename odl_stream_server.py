@@ -565,80 +565,81 @@ class SampleSelect(BaseModel):
 @app.post("/select_sample")
 def select_sample(sel: SampleSelect):
     """Switch active sample, reload arrays, and regenerate outputs."""
-    global cached_geometry, sample_name, config, sinogramMin, sinogramMax
+    global cached_geometry, sample_name, config, sinogramMin, sinogramMax, metadata
 
     try:
         sample_dir = _resolve_sample_dir(config, sel.specie, sel.tree_ID, sel.disk_ID)
         new_sample_name = f"{sel.specie}_{sel.tree_ID}_{sel.disk_ID}"
-        if sample_name != None and sample_name == new_sample_name:
-            return {"status": "ok", "sample_dir": str(sample_dir), "frames": N, "sinogram_min": float(sinogramMin), "sinogram_max": float(sinogramMax)}
-        sample_name = new_sample_name
-        print(f"[INFO] Selecting sample {sample_name}...")
-        _load_sample_data(sample_dir)
+        if sample_name == None or sample_name != new_sample_name:
+            sample_name = new_sample_name
+            print(f"[INFO] Selecting sample {sample_name}...")
+            _load_sample_data(sample_dir)
 
-        print("[INFO] Precomputing and saving full geometry JSON to disk...")
+            print("[INFO] Precomputing and saving full geometry JSON to disk...")
 
-        # Rebuild the compact JSON & trajectory
-        cached_geometry = {
-            "sources": [],
-            "detector_panels": [],
-            "fov_rays": [],
-            "full_trajectory": [],
-            "bezier_curves": [],
-            "bezier_curves_uvs": []
-        }
+            # Rebuild the compact JSON & trajectory
+            cached_geometry = {
+                "sources": [],
+                "detector_panels": [],
+                "fov_rays": [],
+                "full_trajectory": [],
+                "bezier_curves": [],
+                "bezier_curves_uvs": []
+            }
 
-        start = time.time()
-        src, rays, surface, surface_uv = generate_sensor_geometry(geometry)
-        cached_geometry["sources"] = src.tolist()
-        cached_geometry["bezier_curves"] = surface.tolist()
-        cached_geometry["bezier_curves_uvs"] = surface_uv.tolist()
-        cached_geometry["fov_rays"] = rays.tolist()
-        cached_geometry["full_trajectory"] = src.tolist()
-        end = time.time()
-        print(f"[DEBUG] Generating sensor geometry took {end - start} seconds")
+            start = time.time()
+            src, rays, surface, surface_uv = generate_sensor_geometry(geometry)
+            cached_geometry["sources"] = src.tolist()
+            cached_geometry["bezier_curves"] = surface.tolist()
+            cached_geometry["bezier_curves_uvs"] = surface_uv.tolist()
+            cached_geometry["fov_rays"] = rays.tolist()
+            cached_geometry["full_trajectory"] = src.tolist()
+            end = time.time()
+            print(f"[DEBUG] Generating sensor geometry took {end - start} seconds")
 
-        start = time.time()
-        with open(FULL_GEOM_JSON, "w") as f:
-            json.dump(cached_geometry, f)
-        end = time.time()
-        print(f"[DEBUG] Saving geometry and trajectory took {end - start} seconds")
+            start = time.time()
+            with open(FULL_GEOM_JSON, "w") as f:
+                json.dump(cached_geometry, f)
+            end = time.time()
+            print(f"[DEBUG] Saving geometry and trajectory took {end - start} seconds")
 
-        print(f"[INFO] Full geometry saved to {FULL_GEOM_JSON}")
+            print(f"[INFO] Full geometry saved to {FULL_GEOM_JSON}")
 
-        start = time.time()
-        print(f"[INFO] Generating sinogram cache (jp2)")
-        sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
-        Path.mkdir(sample_sinogram_cache_dir, parents=True, exist_ok=True)
-        with multiprocessing.Pool(processes=24) as p:
-            p.map(compress_sinogram_slice_jp2, range(N))
-            # FIXME: Some way to report progress...?
-            p.close()
-            p.join()
-        end = time.time()
+            start = time.time()
+            print(f"[INFO] Generating sinogram cache (jp2)")
+            sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
+            Path.mkdir(sample_sinogram_cache_dir, parents=True, exist_ok=True)
+            with multiprocessing.Pool(processes=32) as p:
+                p.map(compress_sinogram_slice_jp2, range(N))
+                # FIXME: Some way to report progress...?
+                p.close()
+                p.join()
+            end = time.time()
 
-        import os
-        jp2_size = 0
-        for i in range(N):
-            jp2_size += os.path.getsize(sample_sinogram_cache_dir / f"{i}.jp2")
-        print(f"[INFO] Generated sinogram cache in {end - start} seconds ({jp2_size} b)")
+            import os
+            jp2_size = 0
+            for i in range(N):
+                jp2_size += os.path.getsize(sample_sinogram_cache_dir / f"{i}.jp2")
+            print(f"[INFO] Generated sinogram cache in {end - start} seconds ({jp2_size} b)")
 
-        #print(f"[INFO] Generating sinogram cache (avif)")
-        #sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
-        #Path.mkdir(sample_sinogram_cache_dir, parents=True, exist_ok=True)
-        #with multiprocessing.Pool(processes=24) as p:
-        #    p.map(compress_sinogram_slice_avif, range(N))
-        #    # FIXME: Some way to report progress...?
-        #    p.close()
-        #    p.join()
-        #end = time.time()
-        #import os
-        #avif_size = 0
-        #for i in range(N):
-        #    avif_size += os.path.getsize(sample_sinogram_cache_dir / f"{i}.avif")
-        #print(f"[INFO] Generated sinogram cache in {end - start} seconds ({avif_size} b)")
+            #print(f"[INFO] Generating sinogram cache (avif)")
+            #sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
+            #Path.mkdir(sample_sinogram_cache_dir, parents=True, exist_ok=True)
+            #with multiprocessing.Pool(processes=24) as p:
+            #    p.map(compress_sinogram_slice_avif, range(N))
+            #    # FIXME: Some way to report progress...?
+            #    p.close()
+            #    p.join()
+            #end = time.time()
+            #import os
+            #avif_size = 0
+            #for i in range(N):
+            #    avif_size += os.path.getsize(sample_sinogram_cache_dir / f"{i}.avif")
+            #print(f"[INFO] Generated sinogram cache in {end - start} seconds ({avif_size} b)")
+        else:
+            print(f"[DEBUG] Sample '{new_sample_name}' was already selected, doing nothing.")
 
-        return {"status": "ok", "sample_dir": str(sample_dir), "frames": N, "sinogram_min": float(sinogramMin), "sinogram_max": float(sinogramMax)}
+        return {"status": "ok", "sample_dir": str(sample_dir), "frames": N, "sinogram_min": float(sinogramMin), "sinogram_max": float(sinogramMax), "metadata": metadata}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 

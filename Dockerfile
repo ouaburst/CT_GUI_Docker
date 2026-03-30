@@ -70,9 +70,6 @@ RUN git clone -b astra_cylcone_binding https://github.com/wjp/odl.git /opt/odl \
 WORKDIR /workspace
 COPY . /workspace
 
-# Make project-imports work (e.g. 'import odl_utils')
-ENV PYTHONPATH=/workspace:${PYTHONPATH}
-
 # Expose server port
 EXPOSE 8000
 

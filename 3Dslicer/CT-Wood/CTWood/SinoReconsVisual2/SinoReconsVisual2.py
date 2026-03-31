@@ -17,6 +17,7 @@ import typing
 from typing import Optional
 from vtkmodules.util.numpy_support import numpy_to_vtk, vtk_to_numpy, numpy_to_vtkIdTypeArray
 from vtkmodules.util.vtkImageImportFromArray import vtkImageImportFromArray
+import gzip
 
 try:
   import nrrd
@@ -121,6 +122,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
     def setup(self):
         ScriptedLoadableModuleWidget.setup(self)
 
+        self.session = requests.Session()
+
         # Load and attach UI
         uiWidget = slicer.util.loadUI(self.resourcePath("UI/SinoReconsVisual2.ui"))
         self.ui = slicer.util.childWidgetVariables(uiWidget)
@@ -146,9 +149,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.ui.metadataGroupBox.collapsed = True
         self.ui.metadataTableWidget.setEditTriggers(0) # No editing
 
-        # FIXME: Change callback function names
-        self.ui.runReconstructionButton.clicked.connect(self.onExecuteRemoteCommandClicked)
-        self.ui.loadReconstructionDataButton.clicked.connect(self.onStreamNrrdButtonClicked)
+        self.ui.runReconstructionButton.clicked.connect(self.onRunReconstructionClicked)
+        self.ui.loadReconstructionDataButton.clicked.connect(self.onLoadReconstructionDataClicked)
 
         # FIXME: Change to currentIndexChanged...
         self.ui.reconstructionMethodComboBox.currentTextChanged.connect(self.onReconstructionMethodChanged)
@@ -253,7 +255,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         disk_ID = int(parts[1].strip())
         return tree_ID, disk_ID
 
-    def onStreamNrrdButtonClicked(self):
+    def onLoadReconstructionDataClicked(self):
         try:
             tree_ID, disk_ID = self._parse_selected_sample()
             method = (self.ui.reconstructionSelectorComboBox.currentText or "").lower()
@@ -263,7 +265,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         except Exception as e:
             slicer.util.errorDisplay(f"Failed to parse sample.\nError: {e}", windowTitle="Parsing Error")
 
-    def onExecuteRemoteCommandClicked(self):
+    def onRunReconstructionClicked(self):
         """
         Call backend /run_reconstruction and auto-load the produced NRRD.
         Only send progress_* parameters for iterative methods (e.g., landweber).
@@ -333,10 +335,10 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         progressDialog.canceled.connect(lambda: canceled.__setitem__(0, True))
 
         try:
-            import requests, re, json as _json
+            import re, json as _json
             slicer.util.infoDisplay("Starting remote reconstruction…", "Reconstruction")
 
-            r = requests.post(run_url, json=payload, stream=True, timeout=None)
+            r = self.session.post(run_url, json=payload, stream=True, timeout=None)
             r.raise_for_status()
 
             pct_re = re.compile(r"\((\d+(?:\.\d+)?)%\)")
@@ -400,11 +402,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         config_url = f"{base}/slicer_backend_config.json"
 
         try:
-            response = requests.get(config_url, timeout=5)
+            response = self.session.get(config_url, timeout=5)
             response.raise_for_status()
             config = response.json()
-
-            self.session = requests.Session()
 
             # Populate container/volume for completeness (from config)
             #container_name = config.get("container_name", "")
@@ -482,7 +482,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             url = f"{base}/select_sample"
             start = time.time()
             payload = { "specie": sample["specie"], "tree_ID": int(sample["tree_ID"]), "disk_ID": int(sample["disk_ID"]) }
-            response = requests.post(url, json=payload, timeout=300)  # Up to 5 minutes
+            response = self.session.post(url, json=payload, timeout=300)  # Up to 5 minutes
             if response.status_code != 200:
                 self.ui.sinogramWidget.setEnabled(True)
                 self.ui.reconstructionWidget.setEnabled(True)
@@ -494,19 +494,17 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             end = time.time()
             print(f"[INFO] Selecting sample took: {end-start} seconds")
 
-            url = f"{base}/full_geometry"
             start = time.time()
-            response = requests.get(url, timeout=300)  # Up to 5 minutes
+            url = f"{base}/full_geometry_npz"
+            response = self.session.get(url, timeout=300)  # Up to 5 minutes
             response.raise_for_status()
-            self.fullGeometryData = response.json()
-            end = time.time()
-
+            self.fullGeometryData = np.load(io.BytesIO(response.content), allow_pickle=True)
             total_frames = len(self.fullGeometryData.get("sources", []))
-
+            end = time.time()
             print(f"[INFO] Loaded full geometry: "
-                  f"{total_frames} sources, "
+                  f"{len(self.fullGeometryData.get("sources", []))} sources, "
                   f"{len(self.fullGeometryData.get('detector_panels', []))} panels "
-                  f"in {end - start} seconds")
+                  f"in {end - start} seconds {len(response.content)} bytes")
 
             # Configure slider
             self.ui.indexSlider.setMinimum(0)
@@ -640,6 +638,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             slicer.mrmlScene.RemoveNode(self.sceneObjects.sensorModel)
             slicer.mrmlScene.RemoveNode(self.sceneObjects.trajectoryModelDisplay)
             slicer.mrmlScene.RemoveNode(self.sceneObjects.trajectoryModel)
+            slicer.mrmlScene.RemoveNode(self.sceneObjects.sinogramOutlineNode)
+            slicer.mrmlScene.RemoveNode(self.sceneObjects.sinogramOutlineDisplay)
             self.sceneObjects.sourceModelDisplay = None
             self.sceneObjects.sourceModel = None
             self.sceneObjects.fovRaysModelDisplay = None
@@ -648,6 +648,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.sceneObjects.sensorModel = None
             self.sceneObjects.trajectoryModelDisplay = None
             self.sceneObjects.trajectoryModel = None
+            self.sceneObjects.sinogramOutlineNode = None
+            self.sceneObjects.sinogramOutlineDisplay = None
 
     def updateSceneData(self, index: int):
         self.updateTrajectory()
@@ -987,59 +989,6 @@ def stream_nrrd_from_url(filename, base_url: Optional[str] = None):
         slicer.util.errorDisplay(f"Failed to download the NRRD file from:\n{url}\n\nError: {e}", windowTitle="Download Failed")
     except Exception as e:
         slicer.util.errorDisplay(f"Failed to process or load the NRRD file.\n\nError: {e}", windowTitle="Processing Failed")
-
-# FIXME: Remove
-def stream_vtp_from_url(filenames, base_url: Optional[str] = None):
-    """
-    Download and load one or more VTP files into 3D Slicer with appropriate coloring and settings.
-    """
-    base = normalize_base_url(base_url or get_saved_base_url())
-
-    color_map = {
-        "fov_rays.vtp": (0.0, 1.0, 0.0),     # Green
-        "source_path.vtp": (0.0, 0.0, 1.0),  # Blue
-        "detector_path.vtp": (1.0, 0.0, 0.0) # Red
-    }
-
-    for filename in filenames:
-        try:
-            url = f"{base}/{filename}"  # e.g. {base}/files/xyz.vtp if you place under /files
-            temp_file_path = os.path.join(slicer.app.temporaryPath, filename)
-
-            response = requests.get(url, timeout=10)
-            response.raise_for_status()
-
-            with open(temp_file_path, 'wb') as f:
-                f.write(response.content)
-
-            model_node = slicer.util.loadModel(temp_file_path)
-
-            if model_node:
-                display_node = model_node.GetDisplayNode()
-                if display_node:
-                    display_node.SetVisibility(1)
-                    display_node.SetLineWidth(4)
-                    display_node.SetScalarVisibility(False)
-
-                    color = color_map.get(filename, (0.5, 0.5, 0.5))  # Default gray if unknown
-                    display_node.SetColor(*color)
-
-                    print(f"[INFO] Loaded {filename} with color {color}.")
-
-                bounds = [0]*6
-                model_node.GetBounds(bounds)
-                print(f"[DEBUG] {filename} bounds: {bounds}")
-            else:
-                slicer.util.errorDisplay(f"Failed to load model: {filename}")
-
-        except Exception as e:
-            slicer.util.errorDisplay(f"Failed to load {filename}: {e}")
-
-    layoutManager = slicer.app.layoutManager()
-    threeDWidget = layoutManager.threeDWidget(0)
-    threeDView = threeDWidget.threeDView()
-    threeDView.resetFocalPoint()
-
 
 class SinoReconsVisual2Logic(ScriptedLoadableModuleLogic):
     def __init__(self):

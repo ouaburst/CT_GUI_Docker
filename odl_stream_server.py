@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Query, Request, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+import logging
 from pydantic import BaseModel
 from pathlib import Path
 import numpy as np
@@ -32,7 +33,7 @@ import typing
 # Globals (populated on load)
 # ---------------------------
 config: dict
-sinogram: np.typing.NDArray[np.float32]   # numpy array with shape (N, det_x, det_z)
+sinogram: np.typing.NDArray[np.float32] # numpy array with shape (N, det_x, det_z)
 sinogramMin: np.float32 # Minimum value in the sinogram data
 sinogramMax: np.float32 # Maximum value in the sinogram data
 angles = None            # raw angles array (not directly used after sort)
@@ -44,6 +45,8 @@ N = 0                    # number of projections
 pix_size_det = 0.0       # detector pixel size (mm)
 cached_geometry: dict   # the geometry data
 sample_name: str
+
+
 
 # ---------------------------
 # Paths
@@ -57,7 +60,7 @@ IMAGES_DIR = BASE_DIR / "images"
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 CONFIG_PATH = BASE_DIR / "slicer_backend_config.json"
-FULL_GEOM_JSON = OUTPUT_DIR / "full_geometry.json"
+FULL_GEOM_JSON_NPZ = OUTPUT_DIR / "full_geometry.npz"
 
 SINOGRAM_CACHE_DIR = OUTPUT_DIR / "sinogram_cache"
 
@@ -141,20 +144,22 @@ def _load_sample_data(sample_dir: Path):
 
     # Load raw arrays
     start = time.time()
-    sinogram = np.load(sample_dir / "sinogram.npy")                 # expected (N, det_x, det_z)
-    angles_raw = np.mod(np.load(sample_dir / "angles.npy"), 2*np.pi)
+    #sinogram = np.load(sample_dir / "sinogram.npy") # expected (N, det_x, det_z)
+    sinogram = np.load(sample_dir / "sinogram.npy", mmap_mode="r") # expected (N, det_x, det_z)
+    angles_raw = np.load(sample_dir / "angles.npy")
     z_raw = np.load(sample_dir / "axial_positions.npy")
     shifts_raw = np.load(sample_dir / "shifts.npy")
     with open(sample_dir / "metadata.json") as f:
         metadata = json.load(f)
-    end = time.time()
-
+    # FIXME: This takes a long time, if we had these precomputed switching samples would be pretty fast.
+    # - Julius Häger 2026-03-31
     sinogramMin = np.min(sinogram)
     sinogramMax = np.max(sinogram)
+    end = time.time()
     print(f"[INFO] Sinogram min {sinogramMin} max {sinogramMax}")
-
     print(f"[INFO] Sinogram loaded with shape {sinogram.shape} and dtype {sinogram.dtype} in {end-start:.3} s")
 
+    start = time.time()
     # Apply z correction (accounting for any per-view shift in z)
     z_corrected = z_raw + shifts_raw[:, 2]
 
@@ -208,6 +213,9 @@ def _load_sample_data(sample_dir: Path):
 
     # Optional sanity checks against reconstruction grid definition
     _validate_reconstruction_geometry(metadata)
+
+    end = time.time()
+    print(f"Creating odl geometry took {end-start:.3} seconds")
 
 
 #########################################################
@@ -421,9 +429,42 @@ def generate_sensor_geometry(geometry: odl.tomo.ConeBeamGeometry, num_u=8, num_v
 # ----------------------------------
 app = FastAPI()
 
+logger = logging.getLogger(__name__)
+
 # Serve static reconstruction outputs (NRRDs produced by run_reconstruction)
 app.mount("/images", StaticFiles(directory=str(IMAGES_DIR)), name="images")
 
+@app.middleware("http")
+async def log_to_access_time(request: Request, call_next):
+    start = time.time()
+    try:
+        return await call_next(request)
+    finally:
+        end = time.time()
+        logger.warning(f"Info:\t{request.method} {request.url} took {end-start:.3} s")
+
+#########################################################
+# startup (startup)
+# On app startup:
+# - Load config and the first sample
+# - Precompute and persist a compact geometry JSON
+# - Persist the full trajectory JSON
+# - Generate sinogram image cache
+#########################################################
+@app.on_event("startup")
+def startup():
+    """Load config + default sample, then write output/full_geometry.json and cache trajectory."""
+    global config, sample_name
+
+    start = time.time()
+    config = _load_config()
+    if not config.get("samples"):
+        raise RuntimeError("No samples listed in slicer_backend_config.json")
+    first = config["samples"][0]
+    sample_name = ""
+    select_sample(SampleSelect(specie=first["specie"], tree_ID=int(first["tree_ID"]), disk_ID=int(first["disk_ID"])))
+    end = time.time()
+    print(f"[INFO] Startup took {end - start} seconds")
 
 #########################################################
 # get_backend_config (route)
@@ -510,35 +551,14 @@ def full_dataset():
     })
 
 #########################################################
-# startup (startup)
-# On app startup:
-# - Load config and the first sample
-# - Precompute and persist a compact geometry JSON
-# - Persist the full trajectory JSON
-# - Generate sinogram image cache
+# get_full_geometry_npz (route)
+# Serve the compact precomputed full geometry NPZ file.
 #########################################################
-@app.on_event("startup")
-def startup():
-    """Load config + default sample, then write output/full_geometry.json and cache trajectory."""
-    global config, sample_name
-
-    config = _load_config()
-    if not config.get("samples"):
-        raise RuntimeError("No samples listed in slicer_backend_config.json")
-    first = config["samples"][0]
-    sample_name = ""
-    select_sample(SampleSelect(specie=first["specie"], tree_ID=int(first["tree_ID"]), disk_ID=int(first["disk_ID"])))
-
-#########################################################
-# get_full_geometry (route)
-# Serve the compact precomputed full geometry JSON file.
-#########################################################
-@app.get("/full_geometry")
-def get_full_geometry():
-    if not FULL_GEOM_JSON.exists():
+@app.get("/full_geometry_npz")
+def get_full_geometry_npz():
+    if not FULL_GEOM_JSON_NPZ.exists():
         return JSONResponse(status_code=404, content={"error": "File not found"})
-    return FileResponse(FULL_GEOM_JSON, media_type="application/json")
-
+    return FileResponse(FULL_GEOM_JSON_NPZ, media_type="application/x-npz")
 
 #########################################################
 # serve_full_trajectory (route)
@@ -565,7 +585,7 @@ class SampleSelect(BaseModel):
 @app.post("/select_sample")
 def select_sample(sel: SampleSelect):
     """Switch active sample, reload arrays, and regenerate outputs."""
-    global cached_geometry, sample_name, config, sinogramMin, sinogramMax, metadata
+    global cached_geometry, sample_name, config, sinogramMin, sinogramMax, metadata, sinogram
 
     try:
         sample_dir = _resolve_sample_dir(config, sel.specie, sel.tree_ID, sel.disk_ID)
@@ -574,7 +594,7 @@ def select_sample(sel: SampleSelect):
             sample_name = new_sample_name
             print(f"[INFO] Selecting sample {sample_name}...")
             _load_sample_data(sample_dir)
-
+            
             print("[INFO] Precomputing and saving full geometry JSON to disk...")
 
             # Rebuild the compact JSON & trajectory
@@ -598,29 +618,60 @@ def select_sample(sel: SampleSelect):
             print(f"[DEBUG] Generating sensor geometry took {end - start} seconds")
 
             start = time.time()
-            with open(FULL_GEOM_JSON, "w") as f:
-                json.dump(cached_geometry, f)
+            #with open(FULL_GEOM_JSON, "wt") as f:
+            #    json.dump(cached_geometry, f)
+
+            np.savez_compressed(FULL_GEOM_JSON_NPZ,
+                                allow_pickle=False,
+                                sources=src.astype(np.float32),
+                                bezier_curves=surface.astype(np.float32),
+                                bezier_curves_uvs=surface_uv.astype(np.float32),
+                                fov_rays=rays.astype(np.float32),
+                                full_trajectory=src.astype(np.float32))
+
+            #with gzip.open(FULL_GEOM_JSON_GZIP, "wt", encoding="utf-8") as f:
+            #    json.dump(cached_geometry, f)
             end = time.time()
             print(f"[DEBUG] Saving geometry and trajectory took {end - start} seconds")
 
             print(f"[INFO] Full geometry saved to {FULL_GEOM_JSON}")
 
-            start = time.time()
-            print(f"[INFO] Generating sinogram cache (jp2)")
-            sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
-            Path.mkdir(sample_sinogram_cache_dir, parents=True, exist_ok=True)
-            with multiprocessing.Pool(processes=32) as p:
-                p.map(compress_sinogram_slice_jp2, range(N))
-                # FIXME: Some way to report progress...?
-                p.close()
-                p.join()
-            end = time.time()
+            def generate_sinogram_cache():
+                start = time.time()
+                print(f"[INFO] Generating sinogram cache (jp2)")
+                sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
+                Path.mkdir(sample_sinogram_cache_dir, parents=True, exist_ok=True)
+                with multiprocessing.Pool(processes=32) as p:
+                    p.map(compress_sinogram_slice_jp2, range(N))
+                    # FIXME: Some way to report progress...?
+                    p.close()
+                    p.join()
+                end = time.time()
 
-            import os
-            jp2_size = 0
-            for i in range(N):
-                jp2_size += os.path.getsize(sample_sinogram_cache_dir / f"{i}.jp2")
-            print(f"[INFO] Generated sinogram cache in {end - start} seconds ({jp2_size} b)")
+                import os
+                jp2_size = 0
+                for i in range(N):
+                    jp2_size += os.path.getsize(sample_sinogram_cache_dir / f"{i}.jp2")
+                print(f"[INFO] Generated sinogram cache in {end - start} seconds ({jp2_size} b)")
+
+            multiprocessing.Process(target=generate_sinogram_cache).start()
+
+            #start = time.time()
+            #print(f"[INFO] Generating sinogram cache (jp2)")
+            #sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
+            #Path.mkdir(sample_sinogram_cache_dir, parents=True, exist_ok=True)
+            ##with multiprocessing.Pool(processes=32) as p:
+            ##    p.map(compress_sinogram_slice_jp2, range(N))
+            ##    # FIXME: Some way to report progress...?
+            ##    p.close()
+            ##    p.join()
+            #end = time.time()
+
+            #import os
+            #jp2_size = 0
+            #for i in range(N):
+            #    jp2_size += os.path.getsize(sample_sinogram_cache_dir / f"{i}.jp2")
+            #print(f"[INFO] Generated sinogram cache in {end - start} seconds ({jp2_size} b)")
 
             #print(f"[INFO] Generating sinogram cache (avif)")
             #sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
@@ -641,10 +692,11 @@ def select_sample(sel: SampleSelect):
 
         return {"status": "ok", "sample_dir": str(sample_dir), "frames": N, "sinogram_min": float(sinogramMin), "sinogram_max": float(sinogramMax), "metadata": metadata}
     except Exception as e:
+        print(f"[ERROR] {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 def compress_sinogram_slice_jp2(i):
-    global sample_name, sinogramMin, sinogramMax
+    global sample_name, sinogram, sinogramMin, sinogramMax
     sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
     if Path.exists(sample_sinogram_cache_dir / f"{i}.jp2") == False:
         slice_2d = slice_2d = sinogram[i, :, :].T
@@ -739,11 +791,19 @@ def get_sinogram_slice_fast(index: int):
     print("[DEBUG] Cache dir:", sample_sinogram_cache_dir)
 
     file = f"{index}.jp2"
-    meta_file = f"{index}.jp2.json"
-    with open(sample_sinogram_cache_dir / meta_file) as f:
-        headers = json.load(f)
-    return FileResponse(sample_sinogram_cache_dir / file, media_type="image/jp2", filename=file, headers=headers)
+    file_path = sample_sinogram_cache_dir / file
+    meta_path = sample_sinogram_cache_dir / f"{index}.jp2.json"
+
+    if not Path.exists(file_path):
+        print("[DEBUG] Sinogram cache hit")
+        compress_sinogram_slice_jp2(index)
+    else:
+        print("[DEBUG] Sinogram cache miss")
     
+    with open(meta_path) as f:
+        headers = json.load(f)
+    return FileResponse(file_path, media_type="image/jp2", filename=file, headers=headers)
+
     #file = f"{index}.avif"
     #meta_file = f"{index}.avif.json"
     #with open(sample_sinogram_cache_dir / meta_file) as f:

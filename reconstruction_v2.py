@@ -192,6 +192,28 @@ def write_nrrd(output_path: Path, volume: np.ndarray, voxel_sizes_mm):
     nrrd.write(str(output_path), volume.astype(np.float32), header)
 
 
+def _float_tag(x: float) -> str:
+    return f"{x:.4f}".replace("-", "m").replace(".", "p")
+
+
+def build_output_stem(
+    dataset_name: str,
+    method: str,
+    proj_start: int,
+    proj_stop: int,
+    pitch_mm_per_turn: float,
+    z_center_mode: str,
+    z_half_width_mm: float,
+) -> str:
+    return (
+        f"{dataset_name}_{method}"
+        f"_proj{proj_start}_{proj_stop}"
+        f"_pitch{_float_tag(pitch_mm_per_turn)}"
+        f"_zmode-{z_center_mode}"
+        f"_zhalf{_float_tag(z_half_width_mm)}"
+    )
+
+
 def main():
     args = parse_args()
 
@@ -281,6 +303,16 @@ def main():
     if sino_crop.shape != expected_shape:
         raise ValueError(f"Cropped sinogram shape mismatch: got {sino_crop.shape}, expected {expected_shape}")
 
+    stem = build_output_stem(
+        dataset_name=data_dir.name,
+        method=args.reconstruction_method,
+        proj_start=args.proj_start,
+        proj_stop=args.proj_stop,
+        pitch_mm_per_turn=args.pitch_mm_per_turn,
+        z_center_mode=z_center_mode,
+        z_half_width_mm=args.z_half_width_mm,
+    )
+
     if args.dry_run:
         report = {
             "status": "dry_run_ok",
@@ -293,7 +325,7 @@ def main():
             "z_half_width_mm": args.z_half_width_mm,
             "geometry_debug": geom_result.debug_info,
         }
-        report_path = output_dir / "dry_run_report.json"
+        report_path = output_dir / f"{stem}_dry_run_report.json"
         with open(report_path, "w") as f:
             json.dump(report, f, indent=2)
         print_debug(f"[OK] Dry-run report saved to {report_path}")
@@ -345,16 +377,13 @@ def main():
         f"{float(reco_np.min()):.6f} / {float(reco_np.max()):.6f} / {float(reco_np.mean()):.6f}"
     )
 
-    tag = f"proj{args.proj_start}_{args.proj_stop}"
-    out_name = f"{data_dir.name}_{args.reconstruction_method}_{tag}.nrrd"
-    out_path = output_dir / out_name
-
+    out_path = output_dir / f"{stem}.nrrd"
     voxel_sizes = geom_result.reco_space.cell_sides
     write_nrrd(out_path, reco_np, voxel_sizes_mm=voxel_sizes)
     print_debug(f"[OK] NRRD saved to {out_path}")
 
     if args.save_png:
-        png_prefix = output_dir / out_path.stem
+        png_prefix = output_dir / stem
         save_middle_slices_png(reco_np, png_prefix)
         print_debug(f"[OK] Middle-slice PNGs saved with prefix {png_prefix}")
 
@@ -381,7 +410,7 @@ def main():
         "geometry_debug": geom_result.debug_info,
         "output_nrrd": str(out_path),
     }
-    report_path = output_dir / f"{out_path.stem}_report.json"
+    report_path = output_dir / f"{stem}_report.json"
     with open(report_path, "w") as f:
         json.dump(report, f, indent=2)
 

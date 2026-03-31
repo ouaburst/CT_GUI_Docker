@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import time
 from pathlib import Path
 
@@ -12,43 +11,61 @@ import nrrd
 import numpy as np
 import odl
 
-from odl_utils_v2 import load_json, build_geometry_v2, print_debug
+from odl_utils_v2 import (
+    load_json,
+    build_geometry_v2,
+    print_debug,
+    estimate_window_z_center_mm,
+    estimate_window_angle_based_z_center_mm,
+)
 
 
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="Debuggable ODL reconstruction v2")
 
-    # Data selection
-    ap.add_argument("--data_dir", type=str, default="",
-                    help="Direct path to dataset folder, e.g. /media/Store-SSD/real_datasets/ml_ready/pine_16_1")
+    ap.add_argument(
+        "--data_dir",
+        type=str,
+        default="",
+        help="Direct path to dataset folder, e.g. /media/Store-SSD/real_datasets/ml_ready/pine_16_1",
+    )
     ap.add_argument("--tree_ID", type=int, default=None)
     ap.add_argument("--disk_ID", type=int, default=None)
-    ap.add_argument("--data_root", type=str, default="/media/Store-SSD/real_datasets/ml_ready",
-                    help="Used only if --data_dir is not given")
+    ap.add_argument(
+        "--data_root",
+        type=str,
+        default="/media/Store-SSD/real_datasets/ml_ready",
+        help="Used only if --data_dir is not given",
+    )
 
-    # Metadata
     ap.add_argument("--metadata_path", type=str, default="metadata_v2.json")
 
-    # Output
     ap.add_argument("--output_dir", type=str, default="reconstruction")
     ap.add_argument("--save_png", action="store_true")
-    ap.add_argument("--dry_run", action="store_true",
-                    help="Only build geometry and run sanity checks")
+    ap.add_argument("--dry_run", action="store_true", help="Only build geometry and run sanity checks")
 
-    # Algorithm
     ap.add_argument("--reconstruction_method", type=str, default="fbp", choices=["fbp", "adjoint"])
     ap.add_argument("--filter_type", type=str, default="Ram-Lak")
     ap.add_argument("--frequency_scaling", type=float, default=1.0)
     ap.add_argument("--padding", action="store_true")
 
-    # Cropping for speed/debug
     ap.add_argument("--proj_start", type=int, default=0)
-    ap.add_argument("--proj_stop", type=int, default=800,
-                    help="Use a smaller number first for speed/debug")
+    ap.add_argument("--proj_stop", type=int, default=800, help="Use a smaller number first for speed/debug")
     ap.add_argument("--det_x_start", type=int, default=None)
     ap.add_argument("--det_x_stop", type=int, default=None)
     ap.add_argument("--det_z_start", type=int, default=None)
     ap.add_argument("--det_z_stop", type=int, default=None)
+
+    ap.add_argument("--z_center", type=float, default=0.0, help="Manual center of local reconstruction slab in mm")
+    ap.add_argument("--z_half_width_mm", type=float, default=10.0, help="Half-width of local reconstruction slab in mm")
+    ap.add_argument("--auto_z_center", action="store_true", help="Use midpoint axial position of selected window")
+    ap.add_argument(
+        "--auto_z_center_from_angle",
+        action="store_true",
+        help="Use angle-based z center estimate: z0_fit + (pitch/(2pi))*theta_mid",
+    )
+    ap.add_argument("--z0_fit_mm", type=float, default=-2.063, help="Offset used with --auto_z_center_from_angle")
+    ap.add_argument("--pitch_mm_per_turn", type=float, default=40.0, help="Pitch value for diagnostic tests")
 
     return ap.parse_args()
 
@@ -60,7 +77,6 @@ def resolve_data_dir(args: argparse.Namespace) -> Path:
     if args.tree_ID is None or args.disk_ID is None:
         raise ValueError("Provide either --data_dir or both --tree_ID and --disk_ID")
 
-    # Example: pine_16_1
     return Path(args.data_root) / f"pine_{args.tree_ID}_{args.disk_ID}"
 
 
@@ -89,8 +105,10 @@ def basic_sanity_checks(angles, axial_positions, sinogram, metadata):
     print_debug(f"[SANITY] axial_positions.shape   : {axial_positions.shape}")
     print_debug(f"[SANITY] sinogram.shape          : {sinogram.shape}")
     print_debug(f"[SANITY] sinogram.dtype          : {sinogram.dtype}")
-    print_debug(f"[SANITY] sinogram min/max/mean   : "
-                f"{float(np.min(sinogram)):.6f} / {float(np.max(sinogram)):.6f} / {float(np.mean(sinogram)):.6f}")
+    print_debug(
+        f"[SANITY] sinogram min/max/mean   : "
+        f"{float(np.min(sinogram)):.6f} / {float(np.max(sinogram)):.6f} / {float(np.mean(sinogram)):.6f}"
+    )
 
     if sinogram.ndim != 3:
         raise ValueError(f"Expected sinogram shape (num_proj, det_x, det_z), got {sinogram.shape}")
@@ -109,10 +127,8 @@ def basic_sanity_checks(angles, axial_positions, sinogram, metadata):
 
     if not np.all(np.isfinite(sinogram)):
         raise ValueError("Sinogram contains non-finite values.")
-
     if not np.all(np.isfinite(angles)):
         raise ValueError("Angles contain non-finite values.")
-
     if not np.all(np.isfinite(axial_positions)):
         raise ValueError("Axial positions contain non-finite values.")
 
@@ -185,6 +201,34 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    angles, axial_positions, sinogram = load_input_data(data_dir)
+
+    auto_modes = int(bool(args.auto_z_center)) + int(bool(args.auto_z_center_from_angle))
+    if auto_modes > 1:
+        raise ValueError("Use only one of --auto_z_center or --auto_z_center_from_angle")
+
+    if args.auto_z_center:
+        effective_z_center = estimate_window_z_center_mm(
+            axial_positions_full=axial_positions,
+            proj_start=args.proj_start,
+            proj_stop=args.proj_stop,
+        )
+        z_center_mode = "axial_midpoint"
+
+    elif args.auto_z_center_from_angle:
+        effective_z_center = estimate_window_angle_based_z_center_mm(
+            angles_full=angles,
+            proj_start=args.proj_start,
+            proj_stop=args.proj_stop,
+            pitch_mm_per_turn=args.pitch_mm_per_turn,
+            z0_fit_mm=args.z0_fit_mm,
+        )
+        z_center_mode = "angle_based"
+
+    else:
+        effective_z_center = float(args.z_center)
+        z_center_mode = "manual"
+
     print_debug("=" * 70)
     print_debug("[INFO] reconstruction_v2.py")
     print_debug(f"[INFO] data_dir                 : {data_dir}")
@@ -194,9 +238,16 @@ def main():
     print_debug(f"[INFO] proj range              : {args.proj_start}:{args.proj_stop}")
     print_debug(f"[INFO] det_x range             : {args.det_x_start}:{args.det_x_stop}")
     print_debug(f"[INFO] det_z range             : {args.det_z_start}:{args.det_z_stop}")
+    print_debug(f"[INFO] z_center_mode           : {z_center_mode}")
+    print_debug(f"[INFO] auto_z_center           : {args.auto_z_center}")
+    print_debug(f"[INFO] auto_z_center_from_angle: {args.auto_z_center_from_angle}")
+    print_debug(f"[INFO] z_center_input          : {args.z_center}")
+    print_debug(f"[INFO] z_half_width_mm         : {args.z_half_width_mm}")
+    print_debug(f"[INFO] z0_fit_mm               : {args.z0_fit_mm}")
+    print_debug(f"[INFO] z_center_effective      : {effective_z_center}")
+    print_debug(f"[INFO] pitch_mm_per_turn       : {args.pitch_mm_per_turn}")
     print_debug("=" * 70)
 
-    angles, axial_positions, sinogram = load_input_data(data_dir)
     basic_sanity_checks(angles, axial_positions, sinogram, metadata)
 
     geom_result = build_geometry_v2(
@@ -210,6 +261,9 @@ def main():
         det_x_stop=args.det_x_stop,
         det_z_start=args.det_z_start,
         det_z_stop=args.det_z_stop,
+        z_center_mm=effective_z_center,
+        z_half_width_mm=args.z_half_width_mm,
+        pitch_mm_per_turn=args.pitch_mm_per_turn,
         debug=True,
     )
 
@@ -234,6 +288,9 @@ def main():
             "metadata_path": str(args.metadata_path),
             "sinogram_shape_full": list(sinogram.shape),
             "sinogram_shape_crop": list(sino_crop.shape),
+            "z_center_mode": z_center_mode,
+            "z_center_effective": effective_z_center,
+            "z_half_width_mm": args.z_half_width_mm,
             "geometry_debug": geom_result.debug_info,
         }
         report_path = output_dir / "dry_run_report.json"
@@ -263,7 +320,6 @@ def main():
         except Exception as e:
             raise RuntimeError(
                 f"FBP operator construction failed.\n"
-                f"This likely means the current geometry is not supported by ODL FBP as configured.\n"
                 f"Original error: {e}"
             )
 
@@ -284,8 +340,10 @@ def main():
     print_debug("[SANITY] Reconstruction stats")
     print_debug(f"[SANITY] reco.shape             : {reco_np.shape}")
     print_debug(f"[SANITY] reco.dtype             : {reco_np.dtype}")
-    print_debug(f"[SANITY] reco min/max/mean      : "
-                f"{float(reco_np.min()):.6f} / {float(reco_np.max()):.6f} / {float(reco_np.mean()):.6f}")
+    print_debug(
+        f"[SANITY] reco min/max/mean      : "
+        f"{float(reco_np.min()):.6f} / {float(reco_np.max()):.6f} / {float(reco_np.mean()):.6f}"
+    )
 
     tag = f"proj{args.proj_start}_{args.proj_stop}"
     out_name = f"{data_dir.name}_{args.reconstruction_method}_{tag}.nrrd"
@@ -310,6 +368,9 @@ def main():
         "padding": args.padding,
         "sinogram_shape_full": list(sinogram.shape),
         "sinogram_shape_crop": list(sino_crop.shape),
+        "z_center_mode": z_center_mode,
+        "z_center_effective": effective_z_center,
+        "z_half_width_mm": args.z_half_width_mm,
         "reconstruction_shape": list(reco_np.shape),
         "reconstruction_stats": {
             "min": float(reco_np.min()),

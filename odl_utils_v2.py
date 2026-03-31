@@ -90,6 +90,43 @@ def _derive_axis_shape_and_max(min_pt: float, max_pt: float, voxel: float) -> Tu
     return n, max_adjusted
 
 
+def estimate_window_z_center_mm(
+    axial_positions_full: np.ndarray,
+    proj_start: int,
+    proj_stop: int,
+) -> float:
+    if proj_stop <= proj_start:
+        raise ValueError("proj_stop must be greater than proj_start")
+
+    mid_idx = (proj_start + proj_stop) // 2
+    if not (0 <= mid_idx < len(axial_positions_full)):
+        raise ValueError(
+            f"Mid index {mid_idx} outside valid range [0, {len(axial_positions_full)-1}]"
+        )
+
+    return float(axial_positions_full[mid_idx])
+
+
+def estimate_window_angle_based_z_center_mm(
+    angles_full: np.ndarray,
+    proj_start: int,
+    proj_stop: int,
+    pitch_mm_per_turn: float,
+    z0_fit_mm: float,
+) -> float:
+    if proj_stop <= proj_start:
+        raise ValueError("proj_stop must be greater than proj_start")
+
+    angles_win = np.unwrap(angles_full[proj_start:proj_stop].astype(np.float64))
+    if len(angles_win) == 0:
+        raise ValueError("Selected angle window is empty")
+
+    theta_mid = 0.5 * float(angles_win[0] + angles_win[-1])
+    k = float(pitch_mm_per_turn) / (2.0 * np.pi)
+    z_center = float(z0_fit_mm + k * theta_mid)
+    return z_center
+
+
 def build_geometry_v2(
     sinogram_shape: Tuple[int, int, int],
     angles: np.ndarray,
@@ -101,15 +138,19 @@ def build_geometry_v2(
     det_x_stop: Optional[int] = None,
     det_z_start: Optional[int] = None,
     det_z_stop: Optional[int] = None,
+    z_center_mm: float = 0.0,
+    z_half_width_mm: float = 10.0,
+    pitch_mm_per_turn: float = 40.0,
     debug: bool = True,
 ) -> GeometryBuildResult:
     """
-    Thin-slab + curved detector + manual pitch test:
+    Diagnostic version:
     - sinogram shape = (num_proj, det_x, det_z)
     - curved detector enabled
-    - pitch enabled with a fixed manual value
+    - manual pitch enabled
     - no src/det shift functions
-    - reconstruction z extent forced to a thin slab centered at z=0
+    - reconstruction z extent forced to a slab centered at z_center_mm
+      with half-width z_half_width_mm
     """
     validate_metadata(metadata)
 
@@ -123,6 +164,9 @@ def build_geometry_v2(
     if len(axial_positions) != n_proj:
         raise ValueError(f"axial_positions length ({len(axial_positions)}) != sinogram projections ({n_proj})")
 
+    if z_half_width_mm <= 0:
+        raise ValueError("z_half_width_mm must be > 0")
+
     px = float(metadata["DET_PIX_SIZE"])
 
     p0, p1 = _slice_bounds(n_proj, proj_start, proj_stop)
@@ -131,7 +175,6 @@ def build_geometry_v2(
 
     angles_c = np.unwrap(angles[p0:p1].astype(np.float64).copy())
     axial_c = axial_positions[p0:p1].astype(np.float64).copy()
-    axial_c = axial_c - axial_c[0]
 
     det_x_min, det_x_max = _derive_detector_bounds(float(metadata["DET_X_MIN"]), px, x0, x1)
     det_z_min, det_z_max = _derive_detector_bounds(float(metadata["DET_Z_MIN"]), px, z0, z1)
@@ -148,10 +191,9 @@ def build_geometry_v2(
     rec_min_y = float(metadata["REC_MIN_Y"])
     rec_max_y = float(metadata["REC_MAX_Y"])
 
-    # Thin slab around geometry origin
-    z_center = 0.0
-    rec_min_z = z_center - 2.0
-    rec_max_z = z_center + 2.0
+    z_center = float(z_center_mm)
+    rec_min_z = z_center - float(z_half_width_mm)
+    rec_max_z = z_center + float(z_half_width_mm)
 
     nx, rec_max_x_adj = _derive_axis_shape_and_max(rec_min_x, rec_max_x, voxel)
     ny, rec_max_y_adj = _derive_axis_shape_and_max(rec_min_y, rec_max_y, voxel)
@@ -170,16 +212,13 @@ def build_geometry_v2(
     det_radius = float(metadata["DET_RADIUS"])
     det_curvature_radius = float(metadata["DET_CURVATURE_RADIUS"])
 
-    # Manual pitch test
-    pitch_mm_per_turn = 50.0
-
     geometry = odl.tomo.ConeBeamGeometry(
         apart=angle_partition,
         dpart=detector_partition,
         src_radius=src_radius,
         det_radius=det_radius,
         det_curvature_radius=(det_curvature_radius, None),
-        pitch=pitch_mm_per_turn,
+        pitch=float(pitch_mm_per_turn),
     )
 
     ray_trafo = odl.tomo.RayTransform(reco_space, geometry, impl="astra_cuda")
@@ -212,8 +251,9 @@ def build_geometry_v2(
         "det_radius_mm": det_radius,
         "det_curvature_radius_mm": det_curvature_radius,
         "z_center_mm": z_center,
-        "pitch_mm_per_turn": pitch_mm_per_turn,
-        "geometry_mode": "curved_detector_thin_slab_manual_pitch",
+        "z_half_width_mm": float(z_half_width_mm),
+        "pitch_mm_per_turn": float(pitch_mm_per_turn),
+        "geometry_mode": "curved_detector_local_helical_slab",
     }
 
     if debug:
@@ -232,9 +272,10 @@ def build_geometry_v2(
         print_debug(f"[DEBUG] Reco Y bounds [mm]         : {rec_min_y:.3f} .. {rec_max_y_adj:.3f}")
         print_debug(f"[DEBUG] Reco Z bounds [mm]         : {rec_min_z:.3f} .. {rec_max_z_adj:.3f}")
         print_debug(f"[DEBUG] Z center [mm]             : {z_center:.6f}")
+        print_debug(f"[DEBUG] Z half-width [mm]         : {float(z_half_width_mm):.6f}")
         print_debug(f"[DEBUG] Detector curvature [mm]    : {det_curvature_radius:.6f}")
-        print_debug(f"[DEBUG] Pitch [mm/turn]           : {pitch_mm_per_turn:.6f}")
-        print_debug(f"[DEBUG] Geometry mode             : curved_detector_thin_slab_manual_pitch")
+        print_debug(f"[DEBUG] Pitch [mm/turn]           : {float(pitch_mm_per_turn):.6f}")
+        print_debug(f"[DEBUG] Geometry mode             : curved_detector_local_helical_slab")
         print_debug("=" * 70)
 
     return GeometryBuildResult(

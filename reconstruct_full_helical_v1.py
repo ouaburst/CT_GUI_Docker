@@ -25,22 +25,9 @@ def parse_args() -> argparse.Namespace:
         description="Full helical reconstruction by overlapping local slab FBP fusion"
     )
 
-    ap.add_argument(
-        "--data_dir",
-        type=str,
-        required=True,
-        help="Dataset folder, e.g. /media/Store-SSD/real_datasets/ml_ready/pine_16_1",
-    )
-    ap.add_argument(
-        "--metadata_path",
-        type=str,
-        default="metadata_v2.json",
-    )
-    ap.add_argument(
-        "--output_dir",
-        type=str,
-        default="reconstruction_full_v1",
-    )
+    ap.add_argument("--data_dir", type=str, required=True)
+    ap.add_argument("--metadata_path", type=str, default="metadata_v2.json")
+    ap.add_argument("--output_dir", type=str, default="reconstruction_full_v3")
 
     ap.add_argument("--window_size", type=int, default=400)
     ap.add_argument("--window_step", type=int, default=200)
@@ -59,7 +46,6 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--det_z_stop", type=int, default=None)
 
     ap.add_argument("--save_window_nrrds", action="store_true")
-
     return ap.parse_args()
 
 
@@ -109,7 +95,9 @@ def make_windows(n_proj: int, window_size: int, window_step: int) -> List[Tuple[
         windows.append((start, start + window_size))
         start += window_step
 
-    if windows[-1][1] < n_proj:
+    if not windows:
+        windows.append((0, n_proj))
+    elif windows[-1][1] < n_proj:
         windows.append((n_proj - window_size, n_proj))
 
     dedup = []
@@ -123,6 +111,26 @@ def make_windows(n_proj: int, window_size: int, window_step: int) -> List[Tuple[
 
 def float_tag(x: float, ndigits: int = 4) -> str:
     return f"{x:.{ndigits}f}".replace("-", "m").replace(".", "p")
+
+
+def unwrap_z_centers(z_centers_wrapped: List[float], period: float) -> List[float]:
+    if not z_centers_wrapped:
+        return []
+
+    out = [float(z_centers_wrapped[0])]
+    offset = 0.0
+    prev = float(z_centers_wrapped[0])
+
+    for z in z_centers_wrapped[1:]:
+        z = float(z)
+        if z - prev < -0.5 * period:
+            offset += period
+        elif z - prev > 0.5 * period:
+            offset -= period
+        out.append(z + offset)
+        prev = z
+
+    return out
 
 
 def main() -> None:
@@ -142,7 +150,7 @@ def main() -> None:
     windows = make_windows(n_proj, args.window_size, args.window_step)
 
     print_debug("=" * 80)
-    print_debug("[INFO] reconstruct_full_helical_v1.py")
+    print_debug("[INFO] reconstruct_full_helical_v3.py")
     print_debug(f"[INFO] data_dir            : {data_dir}")
     print_debug(f"[INFO] output_dir         : {output_dir}")
     print_debug(f"[INFO] sinogram shape     : {sinogram.shape}")
@@ -153,6 +161,26 @@ def main() -> None:
     print_debug(f"[INFO] z0_fit_mm          : {args.z0_fit_mm}")
     print_debug(f"[INFO] z_half_width_mm    : {args.z_half_width_mm}")
     print_debug("=" * 80)
+
+    z_centers_wrapped: List[float] = []
+    for p0, p1 in windows:
+        zc = estimate_window_angle_based_z_center_mm(
+            angles_full=angles,
+            proj_start=p0,
+            proj_stop=p1,
+            pitch_mm_per_turn=args.pitch_mm_per_turn,
+            z0_fit_mm=args.z0_fit_mm,
+        )
+        z_centers_wrapped.append(float(zc))
+
+    z_centers_unwrapped = unwrap_z_centers(z_centers_wrapped, args.pitch_mm_per_turn)
+
+    print_debug("[INFO] first wrapped/unwrapped z centers:")
+    for i in range(min(10, len(z_centers_wrapped))):
+        print_debug(
+            f"[INFO]   {i:02d}: wrapped={z_centers_wrapped[i]:8.3f}  "
+            f"unwrapped={z_centers_unwrapped[i]:8.3f}"
+        )
 
     slab_infos: List[Dict[str, Any]] = []
 
@@ -168,14 +196,10 @@ def main() -> None:
     t_pass1 = time.time()
 
     for wi, (p0, p1) in enumerate(windows):
-        z_center = estimate_window_angle_based_z_center_mm(
-            angles_full=angles,
-            proj_start=p0,
-            proj_stop=p1,
-            pitch_mm_per_turn=args.pitch_mm_per_turn,
-            z0_fit_mm=args.z0_fit_mm,
-        )
+        z_wrapped = z_centers_wrapped[wi]
+        z_unwrapped = z_centers_unwrapped[wi]
 
+        # IMPORTANT: geometry uses WRAPPED z center
         geom = build_geometry_v2(
             sinogram_shape=sinogram.shape,
             angles=angles,
@@ -187,17 +211,21 @@ def main() -> None:
             det_x_stop=args.det_x_stop,
             det_z_start=args.det_z_start,
             det_z_stop=args.det_z_stop,
-            z_center_mm=z_center,
+            z_center_mm=z_wrapped,
             z_half_width_mm=args.z_half_width_mm,
             pitch_mm_per_turn=args.pitch_mm_per_turn,
             debug=False,
         )
 
         reco_space = geom.reco_space
-        min_x, min_y, min_z = map(float, reco_space.min_pt)
-        max_x, max_y, max_z = map(float, reco_space.max_pt)
+        min_x, min_y, _ = map(float, reco_space.min_pt)
+        max_x, max_y, _ = map(float, reco_space.max_pt)
         sx, sy, sz = map(float, reco_space.cell_sides)
         nx, ny, nz = reco_space.shape
+
+        # IMPORTANT: global placement uses UNWRAPPED z center
+        place_min_z = float(z_unwrapped - args.z_half_width_mm)
+        place_max_z = float(z_unwrapped + args.z_half_width_mm)
 
         if reference_shape_xy is None:
             reference_shape_xy = (nx, ny)
@@ -214,17 +242,20 @@ def main() -> None:
             if any(abs(a - b) > 1e-6 for a, b in zip((sx, sy, sz), voxel_sizes_xyz)):
                 raise ValueError("Inconsistent voxel sizes across windows")
 
-        global_min_z = min(global_min_z, min_z)
-        global_max_z = max(global_max_z, max_z)
+        global_min_z = min(global_min_z, place_min_z)
+        global_max_z = max(global_max_z, place_max_z)
 
         slab_infos.append(
             {
                 "window_index": wi,
                 "proj_start": p0,
                 "proj_stop": p1,
-                "z_center_mm": z_center,
-                "min_pt": [min_x, min_y, min_z],
-                "max_pt": [max_x, max_y, max_z],
+                "z_center_wrapped_mm": z_wrapped,
+                "z_center_unwrapped_mm": z_unwrapped,
+                "place_min_z": place_min_z,
+                "place_max_z": place_max_z,
+                "geom_min_pt": [min_x, min_y, float(reco_space.min_pt[2])],
+                "geom_max_pt": [max_x, max_y, float(reco_space.max_pt[2])],
                 "shape": [nx, ny, nz],
                 "voxel_size_mm": [sx, sy, sz],
             }
@@ -248,11 +279,16 @@ def main() -> None:
         wi = info["window_index"]
         p0 = info["proj_start"]
         p1 = info["proj_stop"]
-        z_center = info["z_center_mm"]
+        z_wrapped = info["z_center_wrapped_mm"]
+        z_unwrapped = info["z_center_unwrapped_mm"]
 
         print_debug("-" * 80)
-        print_debug(f"[RUN] window {wi+1}/{len(slab_infos)} : proj {p0}:{p1}, z_center={z_center:.3f}")
+        print_debug(
+            f"[RUN] window {wi+1}/{len(slab_infos)} : proj {p0}:{p1}, "
+            f"z_wrapped={z_wrapped:.3f}, z_unwrapped={z_unwrapped:.3f}"
+        )
 
+        # IMPORTANT: geometry still uses WRAPPED z center
         geom = build_geometry_v2(
             sinogram_shape=sinogram.shape,
             angles=angles,
@@ -264,7 +300,7 @@ def main() -> None:
             det_x_stop=args.det_x_stop,
             det_z_start=args.det_z_start,
             det_z_stop=args.det_z_stop,
-            z_center_mm=z_center,
+            z_center_mm=z_wrapped,
             z_half_width_mm=args.z_half_width_mm,
             pitch_mm_per_turn=args.pitch_mm_per_turn,
             debug=False,
@@ -293,11 +329,11 @@ def main() -> None:
         slab_max = float(np.max(slab))
         slab_mean = float(np.mean(slab))
 
-        min_x, min_y, min_z = map(float, geom.reco_space.min_pt)
-        max_x, max_y, max_z = map(float, geom.reco_space.max_pt)
         nx_s, ny_s, nz_s = slab.shape
 
-        z_start_idx = int(round((min_z - global_min_z) / sz))
+        # IMPORTANT: placement uses UNWRAPPED z center
+        place_min_z = info["place_min_z"]
+        z_start_idx = int(round((place_min_z - global_min_z) / sz))
         z_end_idx = z_start_idx + nz_s
 
         if z_start_idx < 0 or z_end_idx > global_nz:
@@ -311,14 +347,15 @@ def main() -> None:
                 f"{data_dir.name}_fbp"
                 f"_proj{p0}_{p1}"
                 f"_pitch{float_tag(args.pitch_mm_per_turn)}"
-                f"_zcenter{float_tag(z_center, 3)}"
+                f"_zw{float_tag(z_wrapped, 3)}"
+                f"_zuw{float_tag(z_unwrapped, 3)}"
                 f"_zhalf{float_tag(args.z_half_width_mm, 1)}"
             )
             write_nrrd(
                 output_dir / f"{window_name}.nrrd",
                 slab,
                 voxel_sizes_mm=(sx, sy, sz),
-                min_pt_xyz=(min_x, min_y, min_z),
+                min_pt_xyz=(reference_min_x, reference_min_y, place_min_z),
             )
 
         manifest_windows.append(
@@ -326,9 +363,10 @@ def main() -> None:
                 "window_index": wi,
                 "proj_start": p0,
                 "proj_stop": p1,
-                "z_center_mm": z_center,
-                "min_pt": [min_x, min_y, min_z],
-                "max_pt": [max_x, max_y, max_z],
+                "z_center_wrapped_mm": z_wrapped,
+                "z_center_unwrapped_mm": z_unwrapped,
+                "place_min_z": place_min_z,
+                "place_max_z": info["place_max_z"],
                 "shape": [nx_s, ny_s, nz_s],
                 "global_z_index_start": z_start_idx,
                 "global_z_index_end": z_end_idx,
@@ -362,7 +400,7 @@ def main() -> None:
     print_debug("=" * 80)
 
     fused_name = (
-        f"{data_dir.name}_full_helical_fbp"
+        f"{data_dir.name}_full_helical_fbp_fused"
         f"_w{args.window_size}"
         f"_s{args.window_step}"
         f"_pitch{str(args.pitch_mm_per_turn).replace('.', 'p')}"

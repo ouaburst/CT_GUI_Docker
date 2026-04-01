@@ -1,0 +1,21 @@
+{
+    "GEOMETRY_ENGINE": "ODL",
+    "GEOMETRY_NAME": "ConeBeamGeometry",
+    "DET_NPX_Z": 230,
+    "DET_NPX_X": 1560,
+    "DET_PIX_SIZE": 0.3,
+    "DET_X_MIN": -0.46520874751491054,
+    "DET_X_MAX": 0.46520874751491054,
+    "DET_Z_MIN": -34.5,
+    "DET_Z_MAX": 34.5,
+    "SRC_RADIUS": 503.0,
+    "DET_RADIUS": 0.0,
+    "DET_CURVATURE_RADIUS": 503.0,
+    "REC_PIC_SIZE": 0.5,
+    "REC_NPX_X": 512,
+    "REC_NPX_Y": 512,
+    "REC_MIN_X": -80,
+    "REC_MAX_X": 130,
+    "REC_MIN_Y": -200,
+    "REC_MAX_Y": 20
+}

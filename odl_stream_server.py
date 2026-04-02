@@ -60,7 +60,7 @@ IMAGES_DIR = BASE_DIR / "images"
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 CONFIG_PATH = BASE_DIR / "slicer_backend_config.json"
-FULL_GEOM_JSON_NPZ = OUTPUT_DIR / "full_geometry.npz"
+FULL_GEOM_NPZ = OUTPUT_DIR / "full_geometry.npz"
 
 SINOGRAM_CACHE_DIR = OUTPUT_DIR / "sinogram_cache"
 
@@ -556,9 +556,9 @@ def full_dataset():
 #########################################################
 @app.get("/full_geometry_npz")
 def get_full_geometry_npz():
-    if not FULL_GEOM_JSON_NPZ.exists():
+    if not FULL_GEOM_NPZ.exists():
         return JSONResponse(status_code=404, content={"error": "File not found"})
-    return FileResponse(FULL_GEOM_JSON_NPZ, media_type="application/x-npz")
+    return FileResponse(FULL_GEOM_NPZ, media_type="application/x-npz")
 
 #########################################################
 # serve_full_trajectory (route)
@@ -621,7 +621,7 @@ def select_sample(sel: SampleSelect):
             #with open(FULL_GEOM_JSON, "wt") as f:
             #    json.dump(cached_geometry, f)
 
-            np.savez_compressed(FULL_GEOM_JSON_NPZ,
+            np.savez_compressed(FULL_GEOM_NPZ,
                                 allow_pickle=False,
                                 sources=src.astype(np.float32),
                                 bezier_curves=surface.astype(np.float32),
@@ -634,20 +634,22 @@ def select_sample(sel: SampleSelect):
             end = time.time()
             print(f"[DEBUG] Saving geometry and trajectory took {end - start} seconds")
 
-            print(f"[INFO] Full geometry saved to {FULL_GEOM_JSON}")
+            print(f"[INFO] Full geometry saved to {FULL_GEOM_NPZ}")
+
+            sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
+            Path.mkdir(sample_sinogram_cache_dir, parents=True, exist_ok=True)
 
             def generate_sinogram_cache():
                 start = time.time()
                 print(f"[INFO] Generating sinogram cache (jp2)")
                 sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
-                Path.mkdir(sample_sinogram_cache_dir, parents=True, exist_ok=True)
                 with multiprocessing.Pool(processes=32) as p:
                     p.map(compress_sinogram_slice_jp2, range(N))
                     # FIXME: Some way to report progress...?
                     p.close()
                     p.join()
                 end = time.time()
-
+                
                 import os
                 jp2_size = 0
                 for i in range(N):
@@ -794,11 +796,11 @@ def get_sinogram_slice_fast(index: int):
     file_path = sample_sinogram_cache_dir / file
     meta_path = sample_sinogram_cache_dir / f"{index}.jp2.json"
 
-    if not Path.exists(file_path):
+    if Path.exists(file_path) and Path.exists(meta_path):
         print("[DEBUG] Sinogram cache hit")
-        compress_sinogram_slice_jp2(index)
     else:
         print("[DEBUG] Sinogram cache miss")
+        compress_sinogram_slice_jp2(index)
     
     with open(meta_path) as f:
         headers = json.load(f)

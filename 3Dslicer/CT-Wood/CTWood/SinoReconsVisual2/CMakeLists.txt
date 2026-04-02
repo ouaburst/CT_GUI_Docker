@@ -8,6 +8,9 @@ set(MODULE_PYTHON_SCRIPTS
 
 set(MODULE_PYTHON_RESOURCES
   Resources/Icons/${MODULE_NAME}.png
+  Resources/Icons/SlicerAdd.svg
+  Resources/Icons/SlicerMinus.svg
+  Resources/Icons/SlicerRemove.svg
   Resources/UI/${MODULE_NAME}.ui
   )
 

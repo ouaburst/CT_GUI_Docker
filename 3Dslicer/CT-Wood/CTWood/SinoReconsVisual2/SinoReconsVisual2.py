@@ -179,6 +179,13 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         # - Julius Häger 2026-03-05
         #self.sceneObjects = self.createSceneObjects()
 
+        self.ui.addROIButton.clicked.connect(self.addROI)
+        self.ui.removeROIButton.clicked.connect(self.removeROI)
+        self.ui.roiListWidget.currentItemChanged.connect(self.selectROI)
+        self.ui.roiListWidget.itemChanged.connect(self.roiItemChanged)
+        self.selectROI(None, None)
+
+
     def registerSinogramLayout(self):
         layoutDesc = """
         <layout type="vertical">
@@ -214,6 +221,15 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
     def cleanup(self):
         self.destroySceneObjects()
+        if hasattr(self, 'volume_node') and self.volume_node:
+            slicer.mrmlScene.RemoveNode(self.volume_node)
+        if hasattr(self, 'full_detail_volume_node') and self.full_detail_volume_node:
+            slicer.mrmlScene.RemoveNode(self.full_detail_volume_node)
+        
+        for row in range(self.ui.roiListWidget.count):
+            item = self.ui.roiListWidget.item(row)
+            itemData = item.data(0x0100)
+            slicer.mrmlScene.RemoveNode(itemData["roiNode"])
 
     # -----------------------------
     # Utility
@@ -484,8 +500,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             payload = { "specie": sample["specie"], "tree_ID": int(sample["tree_ID"]), "disk_ID": int(sample["disk_ID"]) }
             response = self.session.post(url, json=payload, timeout=300)  # Up to 5 minutes
             if response.status_code != 200:
-                self.ui.sinogramWidget.setEnabled(True)
-                self.ui.reconstructionWidget.setEnabled(True)
+                self.ui.sinogramWidget.setEnabled(False)
+                self.ui.reconstructionWidget.setEnabled(False)
+                self.ui.roiWidget.setEnabled(False)
                 self.ui.statusLabel.setText('Status: <font color="red">Failed to load sample</font>')
                 slicer.util.errorDisplay(f"Failed to load sample {response.status_code}\n{response.content}")
             response_json = response.json()
@@ -519,6 +536,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
             self.ui.sinogramWidget.setEnabled(True)
             self.ui.reconstructionWidget.setEnabled(True)
+            self.ui.roiWidget.setEnabled(True)
 
             sample_metadata = response_json["metadata"]
 
@@ -553,6 +571,92 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         print(f"View Up      : {view_up}")
         print(f"View Angle   : {view_angle}")
         print(f"Distance     : {distance:.3f}\n")
+
+    def addROI(self):
+        name = "roi 1"
+
+        roiNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsROINode")
+        roiNode.GetMarkupsDisplayNode().Visibility2DOff()
+        roiNode.SetName(name)
+
+        item = qt.QListWidgetItem()
+        # FIXME: Find an free name
+        item.setText(name)
+        item.setFlags(2 + 32) # Editable + Enabled
+        # FIXME: Change dict to object
+        item.setData(0x0100, {"roiNode": roiNode}) # UserRole
+
+        self.setInteractive(item, False)
+
+        self.ui.roiListWidget.addItem(item)
+        self.ui.roiListWidget.setCurrentItem(item)
+
+    def roiItemChanged(self, item: qt.QListWidgetItem):
+        itemData = item.data(0x0100)
+        itemData["roiNode"].SetName(item.text())
+
+    def removeROI(self):
+        if self.ui.roiListWidget.currentRow != -1:
+            item = self.ui.roiListWidget.takeItem(self.ui.roiListWidget.currentRow)
+            itemData = item.data(0x0100)
+            slicer.mrmlScene.RemoveNode(itemData["roiNode"])
+        
+    def selectROI(self, current: qt.QListWidgetItem, previous: qt.QListWidgetItem):
+        if current == None:
+            self.ui.xAxisLabel.setEnabled(False)
+            self.ui.yAxisLabel.setEnabled(False)
+            self.ui.zAxisLabel.setEnabled(False)
+
+            self.ui.xAxisRangeWidget.setEnabled(False)
+            self.ui.yAxisRangeWidget.setEnabled(False)
+            self.ui.zAxisRangeWidget.setEnabled(False)
+
+            self.ui.sinogramRangeLabel.setEnabled(False)
+            self.ui.sinogramRangeWidget.setEnabled(False)
+
+            self.ui.removeROIButton.setEnabled(False)
+        else:
+            self.ui.xAxisLabel.setEnabled(True)
+            self.ui.yAxisLabel.setEnabled(True)
+            self.ui.zAxisLabel.setEnabled(True)
+
+            self.ui.xAxisRangeWidget.setEnabled(True)
+            self.ui.yAxisRangeWidget.setEnabled(True)
+            self.ui.zAxisRangeWidget.setEnabled(True)
+
+            self.ui.sinogramRangeLabel.setEnabled(True)
+            self.ui.sinogramRangeWidget.setEnabled(True)
+
+            self.ui.removeROIButton.setEnabled(True)
+
+        if current != None:
+            self.setInteractive(current, True)
+
+        if previous != None:
+            self.setInteractive(previous, False)
+
+        print(f"current: {current}, prev: {previous}")
+
+    def setInteractive(self, listWidgetItem: qt.QListWidgetItem, enable: bool):
+        if enable:
+            itemData = listWidgetItem.data(0x0100)
+            roiNode = itemData["roiNode"]
+            roiDisplayNode = roiNode.GetMarkupsDisplayNode()
+            roiDisplayNode.SetSelectedColor(1.0, 0.0, 0.0)
+            roiDisplayNode.SetHandlesInteractive(True)
+            roiDisplayNode.SetFillOpacity(0.7)
+            roiDisplayNode.SetOutlineOpacity(1.0)
+            roiDisplayNode.SetTranslationHandleVisibility(True)
+            roiDisplayNode.SetRotationHandleVisibility(True)
+            roiDisplayNode.SetScaleHandleVisibility(True)
+        else:
+            itemData = listWidgetItem.data(0x0100)
+            roiNode = itemData["roiNode"]
+            roiDisplayNode = roiNode.GetMarkupsDisplayNode()
+            roiDisplayNode.SetSelectedColor(0.1, 0.1, 0.1)
+            roiDisplayNode.SetHandlesInteractive(False)
+            roiDisplayNode.SetFillOpacity(0.2)
+            roiDisplayNode.SetOutlineOpacity(0.4)
 
     # -----------------------------
     # Rendering helpers

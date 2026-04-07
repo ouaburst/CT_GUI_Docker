@@ -109,12 +109,29 @@ class Vtk3DSceneObjects:
 
     def __init__(self):
         pass
-        
+
+class SampleData:
+    totalSamples: int
+
+    sinogram_min: np.float32
+    sinogram_max: np.float32
+
+    bounds_min: np.typing.NDArray[np.float32]
+    bounds_max: np.typing.NDArray[np.float32]
+
+    geometry: dict[str, np.typing.NDArray]
+
+    def __init__(self):
+        pass
 
 class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin):
+    sceneObjects: Vtk3DSceneObjects
+    sampleData: SampleData
+
     def __init__(self, parent=None):
         ScriptedLoadableModuleWidget.__init__(self, parent)
         VTKObservationMixin.__init__(self)
+        self.sampleData = SampleData()
 
     # -----------------------------
     # UI & wiring
@@ -178,6 +195,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         # because slicer.mrmlScene isn't set here or something similar.
         # - Julius Häger 2026-03-05
         #self.sceneObjects = self.createSceneObjects()
+
+        self.ui.roiCenterCoordinateWidget.coordinatesChanged.connect(self.roiCenterChanged)
+        self.ui.roiSizeCoordinateWidget.coordinatesChanged.connect(self.roiSizeChanged)
 
         self.ui.addROIButton.clicked.connect(self.addROI)
         self.ui.removeROIButton.clicked.connect(self.removeROI)
@@ -493,7 +513,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             base = self._currentBaseUrl()
 
             sample = self.ui.sampleSelectorComboBox.currentData
-            print(f"Selecting sample: {sample["specie"]} {sample["tree_ID"]} {sample["disk_ID"]}")
+            print(f"[INFO] Selecting sample: {sample["specie"]} {sample["tree_ID"]} {sample["disk_ID"]}")
 
             url = f"{base}/select_sample"
             start = time.time()
@@ -506,8 +526,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 self.ui.statusLabel.setText('Status: <font color="red">Failed to load sample</font>')
                 slicer.util.errorDisplay(f"Failed to load sample {response.status_code}\n{response.content}")
             response_json = response.json()
-            self.sinogramMin = response_json["sinogram_min"]
-            self.sinogramMax = response_json["sinogram_max"]
+            self.sampleData.sinogram_min = response_json["sinogram_min"]
+            self.sampleData.sinogram_max = response_json["sinogram_max"]
             end = time.time()
             print(f"[INFO] Selecting sample took: {end-start} seconds")
 
@@ -515,17 +535,19 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             url = f"{base}/full_geometry_npz"
             response = self.session.get(url, timeout=300)  # Up to 5 minutes
             response.raise_for_status()
-            self.fullGeometryData = np.load(io.BytesIO(response.content), allow_pickle=True)
-            total_frames = len(self.fullGeometryData.get("sources", []))
+            self.sampleData.geometry = np.load(io.BytesIO(response.content), allow_pickle=False)
+            self.sampleData.totalSamples = len(self.sampleData.geometry.get("sources", []))
+            self.sampleData.bounds_max = np.max(self.sampleData.geometry.get("sources", np.empty(0)), axis = 0)
+            self.sampleData.bounds_min = np.min(self.sampleData.geometry.get("sources", np.empty(0)), axis = 0)
             end = time.time()
             print(f"[INFO] Loaded full geometry: "
-                  f"{len(self.fullGeometryData.get("sources", []))} sources, "
-                  f"{len(self.fullGeometryData.get('detector_panels', []))} panels "
+                  f"{len(self.sampleData.geometry.get("sources", []))} sources, "
+                  f"{len(self.sampleData.geometry.get('detector_panels', []))} panels "
                   f"in {end - start} seconds {len(response.content)} bytes")
 
             # Configure slider
             self.ui.indexSlider.setMinimum(0)
-            self.ui.indexSlider.setMaximum(max(0, total_frames - 1))
+            self.ui.indexSlider.setMaximum(max(0, self.sampleData.totalSamples - 1))
             self.ui.indexSlider.setValue(0)
             self.ui.sliderIndexLabel.setText("Index: 0")
 
@@ -579,6 +601,16 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         roiNode.GetMarkupsDisplayNode().Visibility2DOff()
         roiNode.SetName(name)
 
+        # Update UI with the new roi
+        #roiNode.GetMarkupsDisplayNode().AddObserver(vtk.vtkCommand.ModifiedEvent, self.roiNodeChanged)
+        #roiNode.GetMarkupsDisplayNode().AddObserver(vtk.vtkCommand.ModifiedEvent, lambda n, e: print("display node modified", e))
+        roiNode.AddObserver(vtk.vtkCommand.ModifiedEvent, self.roiNodeChanged)
+        #roiNode.AddObserver(slicer.vtkMRMLMarkupsNode.PointModifiedEvent, self.roiNodeChanged)
+
+        
+
+
+
         item = qt.QListWidgetItem()
         # FIXME: Find an free name
         item.setText(name)
@@ -603,39 +635,27 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         
     def selectROI(self, current: qt.QListWidgetItem, previous: qt.QListWidgetItem):
         if current == None:
-            self.ui.xAxisLabel.setEnabled(False)
-            self.ui.yAxisLabel.setEnabled(False)
-            self.ui.zAxisLabel.setEnabled(False)
-
-            self.ui.xAxisRangeWidget.setEnabled(False)
-            self.ui.yAxisRangeWidget.setEnabled(False)
-            self.ui.zAxisRangeWidget.setEnabled(False)
-
-            self.ui.sinogramRangeLabel.setEnabled(False)
-            self.ui.sinogramRangeWidget.setEnabled(False)
-
+            self.ui.roiEditWidget.setEnabled(False)
             self.ui.removeROIButton.setEnabled(False)
         else:
-            self.ui.xAxisLabel.setEnabled(True)
-            self.ui.yAxisLabel.setEnabled(True)
-            self.ui.zAxisLabel.setEnabled(True)
-
-            self.ui.xAxisRangeWidget.setEnabled(True)
-            self.ui.yAxisRangeWidget.setEnabled(True)
-            self.ui.zAxisRangeWidget.setEnabled(True)
-
-            self.ui.sinogramRangeLabel.setEnabled(True)
-            self.ui.sinogramRangeWidget.setEnabled(True)
-
+            self.ui.roiEditWidget.setEnabled(True)
             self.ui.removeROIButton.setEnabled(True)
+
+            itemData = current.data(0x0100)
+            roiNode = itemData["roiNode"]
+
+            center = roiNode.GetCenter()
+            size = roiNode.GetSize()
+
+            # FIXME: Very inefficient to set the coordinates through strings
+            self.ui.roiCenterCoordinateWidget.coordinates = f"{center.GetX()},{center.GetY()},{center.GetZ()}"
+            self.ui.roiSizeCoordinateWidget.coordinates = f"{size[0]},{size[1]},{size[2]}"
 
         if current != None:
             self.setInteractive(current, True)
 
         if previous != None:
             self.setInteractive(previous, False)
-
-        print(f"current: {current}, prev: {previous}")
 
     def setInteractive(self, listWidgetItem: qt.QListWidgetItem, enable: bool):
         if enable:
@@ -657,6 +677,48 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             roiDisplayNode.SetHandlesInteractive(False)
             roiDisplayNode.SetFillOpacity(0.2)
             roiDisplayNode.SetOutlineOpacity(0.4)
+
+    # PythonQt seems to bind the parameter as a 'double'
+    # instead of a 'double*' meaning the parameter is
+    # completely useless in python.
+    # - Julius Häger 2026-04-07
+    def roiCenterChanged(self, _broken):
+        if self.ui.roiListWidget.currentRow == -1:
+            return
+        
+        newCoords = [float(x) for x in self.ui.roiCenterCoordinateWidget.coordinates.split(',')]
+
+        item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
+        itemData = item.data(0x0100)
+        roiNode = itemData["roiNode"]
+
+        roiNode.SetCenter(newCoords)
+
+    def roiSizeChanged(self, _broken):
+        if self.ui.roiListWidget.currentRow == -1:
+            return
+        
+        newSize = [float(x) for x in self.ui.roiSizeCoordinateWidget.coordinates.split(',')]
+
+        item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
+        itemData = item.data(0x0100)
+        roiNode = itemData["roiNode"]
+
+        roiNode.SetSize(newSize)
+
+    def roiNodeChanged(self, roiNode, event):
+        # FIXME: Only change the UI if this is the active roiNode?
+        center = roiNode.GetCenter()
+        size = roiNode.GetSize()
+
+        # FIXME: Very inefficient to set the coordinates through strings
+        self.ui.roiCenterCoordinateWidget.blockSignals(True)
+        self.ui.roiCenterCoordinateWidget.coordinates = f"{center.GetX()},{center.GetY()},{center.GetZ()}"
+        self.ui.roiCenterCoordinateWidget.blockSignals(False)
+
+        self.ui.roiSizeCoordinateWidget.blockSignals(True)
+        self.ui.roiSizeCoordinateWidget.coordinates = f"{size[0]},{size[1]},{size[2]}"
+        self.ui.roiSizeCoordinateWidget.blockSignals(False)
 
     # -----------------------------
     # Rendering helpers
@@ -762,7 +824,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.updateSensorGeometry(index)
 
     def updateTrajectory(self):
-        trajectory = np.array(self.fullGeometryData.get("full_trajectory", [])).astype(np.float32)
+        trajectory = self.sampleData.geometry.get("full_trajectory", np.empty(0))
         #print(f"trajectory {trajectory.shape} {trajectory.dtype} {len(trajectory)}")
         
         polyData : vtk.vtkPolyData = typing.cast(vtk.vtkPolyData, self.sceneObjects.trajectoryModel.GetPolyData())
@@ -779,8 +841,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         polyData.Modified()
 
     def updateSource(self, index: int):
-        sources = self.fullGeometryData.get("sources", [])
-        source = np.array([sources[index]]).astype(np.float32)
+        sources = self.sampleData.geometry.get("sources", np.empty(0))
+        source = sources[index].reshape(1, 3)
         #print(f"sources {source.shape} {source.dtype} {len(source)}")
 
         polyData : vtk.vtkPolyData = typing.cast(vtk.vtkPolyData, self.sceneObjects.sourceModel.GetPolyData())
@@ -800,8 +862,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         #print(polyData)
 
     def updateFOVLines(self, index: int):
-        rays = self.fullGeometryData.get("fov_rays", [])
-        rays = np.array(rays[index])
+        rays = self.sampleData.geometry.get("fov_rays", np.empty(0))
+        rays = rays[index]
         if rays.shape[-1] != 3 or rays.shape[-2] != 2:
             print(f"[ERROR] fov_rays had the wrong shape {rays.shape}, expected (N, 2, 3).")
             return
@@ -821,8 +883,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         polyData.Modified()
 
     def updateSensorGeometry(self, index: int):
-        bezier_curves = self.fullGeometryData.get("bezier_curves", [])
-        bezier_curves_uvs = self.fullGeometryData.get("bezier_curves_uvs", [])
+        bezier_curves = self.sampleData.geometry.get("bezier_curves", np.empty(0))
+        bezier_curves_uvs = self.sampleData.geometry.get("bezier_curves_uvs", np.empty(0))
         curves = np.array(bezier_curves[index])
         curve_uvs = np.array(bezier_curves_uvs)
 
@@ -927,12 +989,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 self.volume_node = slicer.util.addVolumeFromArray(img_data_mapped[:, :, np.newaxis])
                 self.volume_node.name = f"Preview sinogram"
 
-            if hasattr(self, "sinogramMin") and hasattr(self, "sinogramMax"):
-                self.volume_node.GetDisplayNode().SetAutoWindowLevel(False)
-                self.volume_node.GetDisplayNode().SetWindowLevelMinMax(self.sinogramMin, self.sinogramMax)
-            else:
-                print("[WARNING] Did not have sinogram min/max data, using auto window level.")
-                self.volume_node.GetDisplayNode().SetAutoWindowLevel(True)
+            self.volume_node.GetDisplayNode().SetAutoWindowLevel(False)
+            self.volume_node.GetDisplayNode().SetWindowLevelMinMax(self.sampleData.sinogram_min, self.sampleData.sinogram_max)
 
             # Update outline bounds.
             bounds = np.empty(6)
@@ -943,7 +1001,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             print(f"[DEBUG] Adding/modifying volume took: {end - start} s")
 
             start = time.time()
-            tex_data = (np.iinfo(np.uint8).max * (img_data_mapped - self.sinogramMin) / (self.sinogramMax - self.sinogramMin)).astype(np.uint8)
+            tex_data = (np.iinfo(np.uint8).max * (img_data_mapped - self.sampleData.sinogram_min) / (self.sampleData.sinogram_max - self.sampleData.sinogram_min)).astype(np.uint8)
 
             self.sceneObjects.sensorModelImage.SetDimensions(tex_data.shape[1], tex_data.shape[0], 1)
             # FIXME: Do not allocate a new VTK arrray, update the existing one if possible!
@@ -1007,12 +1065,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 self.full_detail_volume_node = slicer.util.addVolumeFromArray(data)
                 self.full_detail_volume_node.name = f"Full detail sinogram"
 
-            if hasattr(self, "sinogramMin") and hasattr(self, "sinogramMax"):
-                self.full_detail_volume_node.GetDisplayNode().SetAutoWindowLevel(False)
-                self.full_detail_volume_node.GetDisplayNode().SetWindowLevelMinMax(self.sinogramMin, self.sinogramMax)
-            else:
-                print("[WARNING] Did not have sinogram min/max data, using auto window level.")
-                self.full_detail_volume_node.GetDisplayNode().SetAutoWindowLevel(True)
+            self.full_detail_volume_node.GetDisplayNode().SetAutoWindowLevel(False)
+            self.full_detail_volume_node.GetDisplayNode().SetWindowLevelMinMax(self.sampleData.sinogram_min, self.sampleData.sinogram_max)
             
             # Update outline bounds.
             bounds = np.empty(6)

@@ -32,7 +32,7 @@
          <x>0</x>
          <y>0</y>
          <width>694</width>
-         <height>1327</height>
+         <height>1307</height>
         </rect>
        </property>
        <property name="sizePolicy">
@@ -321,13 +321,13 @@
           <property name="collapsedHeight">
            <number>1</number>
           </property>
-          <layout class="QVBoxLayout" name="verticalLayout_3">
+          <layout class="QVBoxLayout" name="verticalLayout_5">
            <item>
             <widget class="QWidget" name="roiWidget" native="true">
              <property name="enabled">
               <bool>false</bool>
              </property>
-             <layout class="QVBoxLayout" name="verticalLayout_5">
+             <layout class="QVBoxLayout" name="verticalLayout_3">
               <property name="leftMargin">
                <number>0</number>
               </property>
@@ -447,122 +447,52 @@
                  </sizepolicy>
                 </property>
                 <layout class="QGridLayout" name="gridLayout_3">
-                 <property name="leftMargin">
-                  <number>0</number>
-                 </property>
-                 <property name="topMargin">
-                  <number>0</number>
-                 </property>
-                 <property name="rightMargin">
-                  <number>0</number>
-                 </property>
-                 <item row="0" column="0" colspan="2">
+                 <item row="0" column="0">
                   <widget class="QLabel" name="regionOfInterestLabel">
                    <property name="text">
                     <string>Region of interest</string>
                    </property>
                   </widget>
                  </item>
-                 <item row="2" column="0">
-                  <widget class="QLabel" name="yAxisLabel">
+                 <item row="1" column="0">
+                  <widget class="QLabel" name="roiCenterLabel">
                    <property name="text">
-                    <string>Y:</string>
+                    <string>Center</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="1">
+                  <widget class="qMRMLCoordinatesWidget" name="roiCenterCoordinateWidget">
+                   <property name="quantity">
+                    <string notr="true">length</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="2" column="0">
+                  <widget class="QLabel" name="roiSizeLabel">
+                   <property name="frameShape">
+                    <enum>QFrame::NoFrame</enum>
+                   </property>
+                   <property name="text">
+                    <string>Size</string>
                    </property>
                   </widget>
                  </item>
                  <item row="2" column="1">
-                  <widget class="ctkRangeWidget" name="yAxisRangeWidget">
-                   <property name="palette">
-                    <palette>
-                     <active>
-                      <colorrole role="Highlight">
-                       <brush brushstyle="SolidPattern">
-                        <color alpha="255">
-                         <red>58</red>
-                         <green>255</green>
-                         <blue>32</blue>
-                        </color>
-                       </brush>
-                      </colorrole>
-                     </active>
-                     <inactive>
-                      <colorrole role="Highlight">
-                       <brush brushstyle="SolidPattern">
-                        <color alpha="255">
-                         <red>58</red>
-                         <green>255</green>
-                         <blue>32</blue>
-                        </color>
-                       </brush>
-                      </colorrole>
-                     </inactive>
-                     <disabled>
-                      <colorrole role="Highlight">
-                       <brush brushstyle="SolidPattern">
-                        <color alpha="255">
-                         <red>58</red>
-                         <green>120</green>
-                         <blue>32</blue>
-                        </color>
-                       </brush>
-                      </colorrole>
-                     </disabled>
-                    </palette>
+                  <widget class="qMRMLCoordinatesWidget" name="roiSizeCoordinateWidget">
+                   <property name="quantity">
+                    <string notr="true">length</string>
                    </property>
                   </widget>
                  </item>
                  <item row="3" column="0">
-                  <widget class="QLabel" name="zAxisLabel">
+                  <widget class="QLabel" name="sinogramRangeLabel">
                    <property name="text">
-                    <string>Z:</string>
+                    <string>Sinogram range</string>
                    </property>
                   </widget>
                  </item>
-                 <item row="3" column="1">
-                  <widget class="ctkRangeWidget" name="zAxisRangeWidget">
-                   <property name="palette">
-                    <palette>
-                     <active>
-                      <colorrole role="Highlight">
-                       <brush brushstyle="SolidPattern">
-                        <color alpha="255">
-                         <red>10</red>
-                         <green>120</green>
-                         <blue>235</blue>
-                        </color>
-                       </brush>
-                      </colorrole>
-                     </active>
-                     <inactive>
-                      <colorrole role="Highlight">
-                       <brush brushstyle="SolidPattern">
-                        <color alpha="255">
-                         <red>10</red>
-                         <green>120</green>
-                         <blue>235</blue>
-                        </color>
-                       </brush>
-                      </colorrole>
-                     </inactive>
-                     <disabled>
-                      <colorrole role="Highlight">
-                       <brush brushstyle="SolidPattern">
-                        <color alpha="255">
-                         <red>0</red>
-                         <green>120</green>
-                         <blue>215</blue>
-                        </color>
-                       </brush>
-                      </colorrole>
-                     </disabled>
-                    </palette>
-                   </property>
-                   <property name="autoFillBackground">
-                    <bool>false</bool>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="5" column="0" colspan="2">
+                 <item row="4" column="0" colspan="2">
                   <widget class="ctkRangeWidget" name="sinogramRangeWidget">
                    <property name="palette">
                     <palette>
@@ -600,61 +530,6 @@
                       </colorrole>
                      </disabled>
                     </palette>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="1" column="0">
-                  <widget class="QLabel" name="xAxisLabel">
-                   <property name="text">
-                    <string>X:</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="1" column="1">
-                  <widget class="ctkRangeWidget" name="xAxisRangeWidget">
-                   <property name="palette">
-                    <palette>
-                     <active>
-                      <colorrole role="Highlight">
-                       <brush brushstyle="SolidPattern">
-                        <color alpha="255">
-                         <red>255</red>
-                         <green>50</green>
-                         <blue>15</blue>
-                        </color>
-                       </brush>
-                      </colorrole>
-                     </active>
-                     <inactive>
-                      <colorrole role="Highlight">
-                       <brush brushstyle="SolidPattern">
-                        <color alpha="255">
-                         <red>255</red>
-                         <green>50</green>
-                         <blue>15</blue>
-                        </color>
-                       </brush>
-                      </colorrole>
-                     </inactive>
-                     <disabled>
-                      <colorrole role="Highlight">
-                       <brush brushstyle="SolidPattern">
-                        <color alpha="255">
-                         <red>120</red>
-                         <green>50</green>
-                         <blue>15</blue>
-                        </color>
-                       </brush>
-                      </colorrole>
-                     </disabled>
-                    </palette>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="4" column="0" colspan="2">
-                  <widget class="QLabel" name="sinogramRangeLabel">
-                   <property name="text">
-                    <string>Sinogram range</string>
                    </property>
                   </widget>
                  </item>
@@ -865,6 +740,11 @@
    <container>1</container>
   </customwidget>
   <customwidget>
+   <class>ctkCoordinatesWidget</class>
+   <extends>QWidget</extends>
+   <header>ctkCoordinatesWidget.h</header>
+  </customwidget>
+  <customwidget>
    <class>ctkPushButton</class>
    <extends>QPushButton</extends>
    <header>ctkPushButton.h</header>
@@ -873,6 +753,11 @@
    <class>ctkRangeWidget</class>
    <extends>QWidget</extends>
    <header>ctkRangeWidget.h</header>
+  </customwidget>
+  <customwidget>
+   <class>qMRMLCoordinatesWidget</class>
+   <extends>ctkCoordinatesWidget</extends>
+   <header>qMRMLCoordinatesWidget.h</header>
   </customwidget>
  </customwidgets>
  <resources>

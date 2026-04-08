@@ -277,6 +277,9 @@
               </item>
               <item row="1" column="2">
                <widget class="QLabel" name="playSpeedLabel">
+                <property name="toolTip">
+                 <string>The current speed at which the sinogram animation will play.</string>
+                </property>
                 <property name="text">
                  <string>Speed: x1</string>
                 </property>
@@ -299,6 +302,9 @@
                 <layout class="QGridLayout" name="visualizationSettingsLayout">
                  <item row="0" column="0">
                   <widget class="QCheckBox" name="showSinogramOnSensorCheckbox">
+                   <property name="toolTip">
+                    <string>Whether or not to show the sinogram on the sensor geometry in the 3D view.</string>
+                   </property>
                    <property name="text">
                     <string>Show sinogram on sensor</string>
                    </property>
@@ -406,6 +412,9 @@
                         <verstretch>0</verstretch>
                        </sizepolicy>
                       </property>
+                      <property name="toolTip">
+                       <string>Add new region of interest.</string>
+                      </property>
                       <property name="icon">
                        <iconset resource="../sinoReconsVisual.qrc">
                         <normaloff>:/Icons/SlicerAddLT.svg</normaloff>:/Icons/SlicerAddLT.svg</iconset>
@@ -422,6 +431,9 @@
                         <horstretch>0</horstretch>
                         <verstretch>0</verstretch>
                        </sizepolicy>
+                      </property>
+                      <property name="toolTip">
+                       <string>Remove selected region of interest.</string>
                       </property>
                       <property name="icon">
                        <iconset resource="../sinoReconsVisual.qrc">
@@ -456,6 +468,9 @@
                  </item>
                  <item row="1" column="0">
                   <widget class="QLabel" name="roiCenterLabel">
+                   <property name="toolTip">
+                    <string>Center position of the region of interest.</string>
+                   </property>
                    <property name="text">
                     <string>Center</string>
                    </property>
@@ -470,6 +485,9 @@
                  </item>
                  <item row="2" column="0">
                   <widget class="QLabel" name="roiSizeLabel">
+                   <property name="toolTip">
+                    <string>The size of the region of interest.</string>
+                   </property>
                    <property name="frameShape">
                     <enum>QFrame::NoFrame</enum>
                    </property>
@@ -487,6 +505,9 @@
                  </item>
                  <item row="3" column="0">
                   <widget class="QLabel" name="sinogramRangeLabel">
+                   <property name="toolTip">
+                    <string>The subset of the sinogram to use for the selected region of interest.</string>
+                   </property>
                    <property name="text">
                     <string>Sinogram range</string>
                    </property>
@@ -530,6 +551,9 @@
                       </colorrole>
                      </disabled>
                     </palette>
+                   </property>
+                   <property name="decimals">
+                    <number>0</number>
                    </property>
                   </widget>
                  </item>

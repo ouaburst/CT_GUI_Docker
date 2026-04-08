@@ -124,6 +124,11 @@ class SampleData:
     def __init__(self):
         pass
 
+class ROIData:
+    roi_node: slicer.vtkMRMLMarkupsROINode
+    sinogram_start_index: int
+    sinogram_end_index: int
+
 class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     sceneObjects: Vtk3DSceneObjects
     sampleData: SampleData
@@ -198,13 +203,47 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
         self.ui.roiCenterCoordinateWidget.coordinatesChanged.connect(self.roiCenterChanged)
         self.ui.roiSizeCoordinateWidget.coordinatesChanged.connect(self.roiSizeChanged)
+        self.ui.sinogramRangeWidget.valuesChanged.connect(self.roiSinogramValuesChanged)
 
         self.ui.addROIButton.clicked.connect(self.addROI)
         self.ui.removeROIButton.clicked.connect(self.removeROI)
         self.ui.roiListWidget.currentItemChanged.connect(self.selectROI)
         self.ui.roiListWidget.itemChanged.connect(self.roiItemChanged)
         self.selectROI(None, None)
+        self.ui.roiListWidgetEventFilter = self.ROIListEventFilter(self.ui.roiListWidget)
 
+    class ROIListEventFilter(qt.QObject):
+        roi_list_widget: qt.QListWidget
+        roi_list_widget_viewport: typing.Any
+
+        def __init__(self, roi_list_widget: qt.QListWidget):
+            qt.QObject.__init__(self)
+            self.roi_list_widget = roi_list_widget
+            self.roi_list_widget.installEventFilter(self)
+
+            self.roi_list_widget_viewport = self.roi_list_widget.viewport()
+            self.roi_list_widget_viewport.installEventFilter(self)
+        
+        def eventFilter(self, source, event) -> bool:
+            # FIXME: InputMethodQueryEvents cause all kinds of havock crashing 3D Slicer all together.
+            # The crashing only happens sometimes and it seems to be related to recursive calls to eventFilter
+            # though I have no idea how this function is getting called recursively...
+            # - Julius Häger 2026-04-08
+            if event.type() == qt.QEvent.InputMethodQuery:
+                return False
+            
+            if source is self.roi_list_widget:
+                if event.type() == qt.QEvent.KeyPress:
+                    if event.key() == qt.Qt.Key_Escape:
+                        self.roi_list_widget.selectionModel().clear()
+                        self.roi_list_widget.setCurrentRow(-1)
+            elif source is self.roi_list_widget_viewport:
+                if event.type() == qt.QEvent.MouseButtonPress:
+                    if self.roi_list_widget.indexAt(event.pos()).isValid() == False:
+                        self.roi_list_widget.selectionModel().clear()
+                        self.roi_list_widget.setCurrentRow(-1)
+
+            return False
 
     def registerSinogramLayout(self):
         layoutDesc = """
@@ -248,8 +287,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         
         for row in range(self.ui.roiListWidget.count):
             item = self.ui.roiListWidget.item(row)
-            itemData = item.data(0x0100)
-            slicer.mrmlScene.RemoveNode(itemData["roiNode"])
+            itemData: ROIData = item.data(0x0100)
+            slicer.mrmlScene.RemoveNode(itemData.roi_node)
 
     # -----------------------------
     # Utility
@@ -267,13 +306,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             return base
         # Fallback to settings
         return normalize_base_url(get_saved_base_url())
-
-    def clearModels(self):
-        modelNamesToKeep = {"SourceTrajectory"}
-        scene = slicer.mrmlScene
-        for node in scene.GetNodesByClass("vtkMRMLModelNode"):
-            if node.GetName() not in modelNamesToKeep:
-                scene.RemoveNode(node)
 
     # -----------------------------
     # UI reactions
@@ -431,7 +463,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         except Exception as e:
             slicer.util.errorDisplay(f"Reconstruction failed:\n{e}", windowTitle="Reconstruction Error")
         
-
     def onConnectToServerClicked(self):
         # Persist (and normalize) what the user entered before we request
         base = self._currentBaseUrl()
@@ -509,7 +540,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
     def loadSelectedSample(self):
         try:
-            self.clearModels()
+            self.destroySceneObjects()
             base = self._currentBaseUrl()
 
             sample = self.ui.sampleSelectorComboBox.currentData
@@ -559,6 +590,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.ui.sinogramWidget.setEnabled(True)
             self.ui.reconstructionWidget.setEnabled(True)
             self.ui.roiWidget.setEnabled(True)
+            self.ui.sinogramRangeWidget.setRange(0, self.sampleData.totalSamples)
 
             sample_metadata = response_json["metadata"]
 
@@ -577,46 +609,33 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 self.ui.metadataTableWidget.setItem(0, 1, valueItem)
             self.ui.metadataTableWidget.sortingEnabled = True
 
+            # So that the units get set correctly
+            self.ui.roiCenterCoordinateWidget.setMRMLScene(slicer.mrmlScene)
+            self.ui.roiSizeCoordinateWidget.setMRMLScene(slicer.mrmlScene)
+
         except Exception as e:
             slicer.util.errorDisplay(f"Failed to load full dataset:\n{e}")
-
-    def printCameraDebugInfo(self, cameraNode, label=""):
-        pos = cameraNode.GetPosition()
-        fp = cameraNode.GetFocalPoint()
-        view_up = cameraNode.GetViewUp()
-        view_angle = cameraNode.GetViewAngle()
-        distance = ((pos[0]-fp[0])**2 + (pos[1]-fp[1])**2 + (pos[2]-fp[2])**2) ** 0.5
-
-        print(f"\n[DEBUG] Camera Info {label}")
-        print(f"Position     : {pos}")
-        print(f"Focal Point  : {fp}")
-        print(f"View Up      : {view_up}")
-        print(f"View Angle   : {view_angle}")
-        print(f"Distance     : {distance:.3f}\n")
 
     def addROI(self):
         name = "roi 1"
 
-        roiNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsROINode")
-        roiNode.GetMarkupsDisplayNode().Visibility2DOff()
-        roiNode.SetName(name)
+        roi_data = ROIData()
+        roi_data.roi_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsROINode")
+        roi_data.roi_node.GetMarkupsDisplayNode().Visibility2DOff()
+        roi_data.roi_node.SetName(name)
 
         # Update UI with the new roi
-        #roiNode.GetMarkupsDisplayNode().AddObserver(vtk.vtkCommand.ModifiedEvent, self.roiNodeChanged)
-        #roiNode.GetMarkupsDisplayNode().AddObserver(vtk.vtkCommand.ModifiedEvent, lambda n, e: print("display node modified", e))
-        roiNode.AddObserver(vtk.vtkCommand.ModifiedEvent, self.roiNodeChanged)
-        #roiNode.AddObserver(slicer.vtkMRMLMarkupsNode.PointModifiedEvent, self.roiNodeChanged)
+        roi_data.roi_node.AddObserver(vtk.vtkCommand.ModifiedEvent, self.roiNodeChanged)
 
-        
-
-
+        roi_data.sinogram_start_index = 0
+        roi_data.sinogram_end_index = self.sampleData.totalSamples
 
         item = qt.QListWidgetItem()
         # FIXME: Find an free name
         item.setText(name)
         item.setFlags(2 + 32) # Editable + Enabled
         # FIXME: Change dict to object
-        item.setData(0x0100, {"roiNode": roiNode}) # UserRole
+        item.setData(0x0100, roi_data) # UserRole
 
         self.setInteractive(item, False)
 
@@ -624,14 +643,15 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.ui.roiListWidget.setCurrentItem(item)
 
     def roiItemChanged(self, item: qt.QListWidgetItem):
-        itemData = item.data(0x0100)
-        itemData["roiNode"].SetName(item.text())
+        #itemData: ROIData = item.data(0x0100)
+        #itemData.roi_node.SetName(item.text())
+        pass
 
     def removeROI(self):
         if self.ui.roiListWidget.currentRow != -1:
             item = self.ui.roiListWidget.takeItem(self.ui.roiListWidget.currentRow)
-            itemData = item.data(0x0100)
-            slicer.mrmlScene.RemoveNode(itemData["roiNode"])
+            itemData: ROIData = item.data(0x0100)
+            slicer.mrmlScene.RemoveNode(itemData.roi_node)
         
     def selectROI(self, current: qt.QListWidgetItem, previous: qt.QListWidgetItem):
         if current == None:
@@ -641,8 +661,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.ui.roiEditWidget.setEnabled(True)
             self.ui.removeROIButton.setEnabled(True)
 
-            itemData = current.data(0x0100)
-            roiNode = itemData["roiNode"]
+            itemData: ROIData = current.data(0x0100)
+            roiNode = itemData.roi_node
 
             center = roiNode.GetCenter()
             size = roiNode.GetSize()
@@ -651,6 +671,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.ui.roiCenterCoordinateWidget.coordinates = f"{center.GetX()},{center.GetY()},{center.GetZ()}"
             self.ui.roiSizeCoordinateWidget.coordinates = f"{size[0]},{size[1]},{size[2]}"
 
+            self.ui.sinogramRangeWidget.setValues(itemData.sinogram_start_index, itemData.sinogram_end_index)
+
         if current != None:
             self.setInteractive(current, True)
 
@@ -658,10 +680,10 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.setInteractive(previous, False)
 
     def setInteractive(self, listWidgetItem: qt.QListWidgetItem, enable: bool):
+        itemData: ROIData = listWidgetItem.data(0x0100)
+        roiNode = itemData.roi_node
+        roiDisplayNode = roiNode.GetMarkupsDisplayNode()
         if enable:
-            itemData = listWidgetItem.data(0x0100)
-            roiNode = itemData["roiNode"]
-            roiDisplayNode = roiNode.GetMarkupsDisplayNode()
             roiDisplayNode.SetSelectedColor(1.0, 0.0, 0.0)
             roiDisplayNode.SetHandlesInteractive(True)
             roiDisplayNode.SetFillOpacity(0.7)
@@ -670,9 +692,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             roiDisplayNode.SetRotationHandleVisibility(True)
             roiDisplayNode.SetScaleHandleVisibility(True)
         else:
-            itemData = listWidgetItem.data(0x0100)
-            roiNode = itemData["roiNode"]
-            roiDisplayNode = roiNode.GetMarkupsDisplayNode()
             roiDisplayNode.SetSelectedColor(0.1, 0.1, 0.1)
             roiDisplayNode.SetHandlesInteractive(False)
             roiDisplayNode.SetFillOpacity(0.2)
@@ -689,8 +708,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         newCoords = [float(x) for x in self.ui.roiCenterCoordinateWidget.coordinates.split(',')]
 
         item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
-        itemData = item.data(0x0100)
-        roiNode = itemData["roiNode"]
+        itemData: ROIData = item.data(0x0100)
+        roiNode = itemData.roi_node
 
         roiNode.SetCenter(newCoords)
 
@@ -701,11 +720,12 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         newSize = [float(x) for x in self.ui.roiSizeCoordinateWidget.coordinates.split(',')]
 
         item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
-        itemData = item.data(0x0100)
-        roiNode = itemData["roiNode"]
+        itemData: ROIData = item.data(0x0100)
+        roiNode = itemData.roi_node
 
         roiNode.SetSize(newSize)
 
+    # Called when the roi is changed using the 3D/2D widgets.
     def roiNodeChanged(self, roiNode, event):
         # FIXME: Only change the UI if this is the active roiNode?
         center = roiNode.GetCenter()
@@ -719,6 +739,18 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.ui.roiSizeCoordinateWidget.blockSignals(True)
         self.ui.roiSizeCoordinateWidget.coordinates = f"{size[0]},{size[1]},{size[2]}"
         self.ui.roiSizeCoordinateWidget.blockSignals(False)
+
+    def roiSinogramValuesChanged(self, minVal: float, maxVal: float):
+        if self.ui.roiListWidget.currentRow == -1:
+            return
+
+        minVal = int(minVal)
+        maxVal = int(maxVal)
+
+        item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
+        itemData: ROIData = item.data(0x0100)
+        itemData.sinogram_start_index = minVal
+        itemData.sinogram_end_index = maxVal
 
     # -----------------------------
     # Rendering helpers
@@ -804,8 +836,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             slicer.mrmlScene.RemoveNode(self.sceneObjects.sensorModel)
             slicer.mrmlScene.RemoveNode(self.sceneObjects.trajectoryModelDisplay)
             slicer.mrmlScene.RemoveNode(self.sceneObjects.trajectoryModel)
-            slicer.mrmlScene.RemoveNode(self.sceneObjects.sinogramOutlineNode)
             slicer.mrmlScene.RemoveNode(self.sceneObjects.sinogramOutlineDisplay)
+            slicer.mrmlScene.RemoveNode(self.sceneObjects.sinogramOutlineNode)
             self.sceneObjects.sourceModelDisplay = None
             self.sceneObjects.sourceModel = None
             self.sceneObjects.fovRaysModelDisplay = None

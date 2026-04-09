@@ -107,6 +107,12 @@ class Vtk3DSceneObjects:
     sinogramOutlineNode: slicer.vtkMRMLModelNode
     sinogramOutlineDisplay: slicer.vtkMRMLModelDisplayNode
 
+    roiSinogramRangeModel: slicer.vtkMRMLModelNode
+    roiSinogramRangeModelDisplay: slicer.vtkMRMLModelDisplayNode
+
+    roiSinogramTrajectoryModel: slicer.vtkMRMLModelNode
+    roiSinogramTrajectoryModelDisplay: slicer.vtkMRMLModelNode
+
     def __init__(self):
         pass
 
@@ -287,7 +293,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         
         for row in range(self.ui.roiListWidget.count):
             item = self.ui.roiListWidget.item(row)
-            itemData: ROIData = item.data(0x0100)
+            itemData: ROIData = item.data(qt.Qt.UserRole)
             slicer.mrmlScene.RemoveNode(itemData.roi_node)
 
     # -----------------------------
@@ -590,7 +596,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.ui.sinogramWidget.setEnabled(True)
             self.ui.reconstructionWidget.setEnabled(True)
             self.ui.roiWidget.setEnabled(True)
-            self.ui.sinogramRangeWidget.setRange(0, self.sampleData.totalSamples)
+            self.ui.sinogramRangeWidget.setRange(0, self.sampleData.totalSamples - 1)
 
             sample_metadata = response_json["metadata"]
 
@@ -633,9 +639,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         item = qt.QListWidgetItem()
         # FIXME: Find an free name
         item.setText(name)
-        item.setFlags(2 + 32) # Editable + Enabled
-        # FIXME: Change dict to object
-        item.setData(0x0100, roi_data) # UserRole
+        item.setFlags(qt.Qt.ItemIsEditable | qt.Qt.ItemIsEnabled)
+        item.setData(qt.Qt.UserRole, roi_data)
 
         self.setInteractive(item, False)
 
@@ -643,14 +648,13 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.ui.roiListWidget.setCurrentItem(item)
 
     def roiItemChanged(self, item: qt.QListWidgetItem):
-        #itemData: ROIData = item.data(0x0100)
-        #itemData.roi_node.SetName(item.text())
-        pass
+        itemData: ROIData = item.data(qt.Qt.UserRole)
+        itemData.roi_node.SetName(item.text())
 
     def removeROI(self):
         if self.ui.roiListWidget.currentRow != -1:
             item = self.ui.roiListWidget.takeItem(self.ui.roiListWidget.currentRow)
-            itemData: ROIData = item.data(0x0100)
+            itemData: ROIData = item.data(qt.Qt.UserRole)
             slicer.mrmlScene.RemoveNode(itemData.roi_node)
         
     def selectROI(self, current: qt.QListWidgetItem, previous: qt.QListWidgetItem):
@@ -661,7 +665,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.ui.roiEditWidget.setEnabled(True)
             self.ui.removeROIButton.setEnabled(True)
 
-            itemData: ROIData = current.data(0x0100)
+            itemData: ROIData = current.data(qt.Qt.UserRole)
             roiNode = itemData.roi_node
 
             center = roiNode.GetCenter()
@@ -680,7 +684,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.setInteractive(previous, False)
 
     def setInteractive(self, listWidgetItem: qt.QListWidgetItem, enable: bool):
-        itemData: ROIData = listWidgetItem.data(0x0100)
+        itemData: ROIData = listWidgetItem.data(qt.Qt.UserRole)
         roiNode = itemData.roi_node
         roiDisplayNode = roiNode.GetMarkupsDisplayNode()
         if enable:
@@ -708,7 +712,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         newCoords = [float(x) for x in self.ui.roiCenterCoordinateWidget.coordinates.split(',')]
 
         item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
-        itemData: ROIData = item.data(0x0100)
+        itemData: ROIData = item.data(qt.Qt.UserRole)
         roiNode = itemData.roi_node
 
         roiNode.SetCenter(newCoords)
@@ -720,7 +724,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         newSize = [float(x) for x in self.ui.roiSizeCoordinateWidget.coordinates.split(',')]
 
         item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
-        itemData: ROIData = item.data(0x0100)
+        itemData: ROIData = item.data(qt.Qt.UserRole)
         roiNode = itemData.roi_node
 
         roiNode.SetSize(newSize)
@@ -748,9 +752,11 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         maxVal = int(maxVal)
 
         item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
-        itemData: ROIData = item.data(0x0100)
+        itemData: ROIData = item.data(qt.Qt.UserRole)
         itemData.sinogram_start_index = minVal
         itemData.sinogram_end_index = maxVal
+
+        self.updateRoiSinogramRange(minVal, maxVal, True)
 
     # -----------------------------
     # Rendering helpers
@@ -790,7 +796,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         sceneObjects.sensorModelDisplay.SetColor((1.0, 0.5, 0.0))
         sceneObjects.sensorModelDisplay.SetOpacity(0.7)
         sceneObjects.sensorModelDisplay.SetVisibility(1)
-        sceneObjects.sensorModelDisplay.SetRepresentation(2)          # Surface
+        sceneObjects.sensorModelDisplay.SetRepresentation(slicer.vtkMRMLDisplayNode.SurfaceRepresentation)
         sceneObjects.sensorModelDisplay.SetEdgeVisibility(False)      # Hide edges
         sceneObjects.sensorModelDisplay.SetLighting(0)                # Disable lighting
         sceneObjects.sensorModelDisplay.SetBackfaceCulling(False)     # Render both sides
@@ -824,6 +830,30 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         sceneObjects.sinogramOutlineDisplay.Visibility3DOff()
         sceneObjects.sinogramOutlineDisplay.Visibility2DOn()
 
+        sceneObjects.roiSinogramRangeModel = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", "ROI Sinogram Range")
+        polys = vtk.vtkPolyData()
+        polys.SetPoints(vtk.vtkPoints())
+        polys.SetVerts(vtk.vtkCellArray())
+        sceneObjects.roiSinogramRangeModel.SetAndObservePolyData(polys)
+        sceneObjects.roiSinogramRangeModelDisplay = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
+        sceneObjects.roiSinogramRangeModel.SetAndObserveDisplayNodeID(sceneObjects.roiSinogramRangeModelDisplay.GetID())
+        sceneObjects.roiSinogramRangeModelDisplay.SetColor((0.5765, 0.8431, 0.8118))
+        sceneObjects.roiSinogramRangeModelDisplay.SetPointSize(8)
+        sceneObjects.roiSinogramRangeModelDisplay.SetVisibility(1)
+
+        sceneObjects.roiSinogramTrajectoryModel = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", "ROI Sinogram Trajectory")
+        polys = vtk.vtkPolyData()
+        polys.SetPoints(vtk.vtkPoints())
+        polys.SetLines(vtk.vtkCellArray())
+        sceneObjects.roiSinogramTrajectoryModel.SetAndObservePolyData(polys)
+        sceneObjects.roiSinogramTrajectoryModelDisplay = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
+        sceneObjects.roiSinogramTrajectoryModel.SetAndObserveDisplayNodeID(sceneObjects.roiSinogramTrajectoryModelDisplay.GetID())
+        sceneObjects.roiSinogramTrajectoryModelDisplay.SetColor((0.5765, 0.8431, 0.8118))
+        sceneObjects.roiSinogramTrajectoryModelDisplay.SetLineWidth(4)
+        sceneObjects.roiSinogramTrajectoryModelDisplay.SetVisibility(1)
+
+        #93d7cf
+
         return sceneObjects
 
     def destroySceneObjects(self):
@@ -838,6 +868,10 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             slicer.mrmlScene.RemoveNode(self.sceneObjects.trajectoryModel)
             slicer.mrmlScene.RemoveNode(self.sceneObjects.sinogramOutlineDisplay)
             slicer.mrmlScene.RemoveNode(self.sceneObjects.sinogramOutlineNode)
+            slicer.mrmlScene.RemoveNode(self.sceneObjects.roiSinogramRangeModelDisplay)
+            slicer.mrmlScene.RemoveNode(self.sceneObjects.roiSinogramRangeModel)
+            slicer.mrmlScene.RemoveNode(self.sceneObjects.roiSinogramTrajectoryModelDisplay)
+            slicer.mrmlScene.RemoveNode(self.sceneObjects.roiSinogramTrajectoryModel)
             self.sceneObjects.sourceModelDisplay = None
             self.sceneObjects.sourceModel = None
             self.sceneObjects.fovRaysModelDisplay = None
@@ -848,6 +882,10 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.sceneObjects.trajectoryModel = None
             self.sceneObjects.sinogramOutlineNode = None
             self.sceneObjects.sinogramOutlineDisplay = None
+            self.sceneObjects.roiSinogramRangeModelDisplay = None
+            self.sceneObjects.roiSinogramRangeModel = None
+            self.sceneObjects.roiSinogramTrajectoryModelDisplay = None
+            self.sceneObjects.roiSinogramTrajectoryModel = None
 
     def updateSceneData(self, index: int):
         self.updateTrajectory()
@@ -963,6 +1001,45 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
         #print(polyData)
 
+    def updateRoiSinogramRange(self, start_index: int, end_index: int, is_visible: bool):
+        sources = self.sampleData.geometry.get("sources", np.empty(0))
+        start_source = sources[start_index].reshape(1, 3)
+        end_source = sources[end_index].reshape(1, 3)
+        start_and_end = np.vstack((start_source, end_source))
+
+        polyData : vtk.vtkPolyData = typing.cast(vtk.vtkPolyData, self.sceneObjects.roiSinogramRangeModel.GetPolyData())
+
+        points = typing.cast(vtk.vtkPoints, polyData.GetPoints())
+        points.SetData(numpy_to_vtk(start_and_end, 1))
+
+        cells = polyData.GetVerts()
+        idx = numpy_to_vtkIdTypeArray(np.arange(len(start_and_end)), 1)
+        cells.SetData(len(start_and_end), idx)
+
+        points.Modified()
+        cells.Modified()
+        polyData.Modified()
+
+        trajectory = self.sampleData.geometry.get("full_trajectory", np.empty(0))
+        trajectory_range = trajectory[start_index:end_index]
+
+        polyData : vtk.vtkPolyData = typing.cast(vtk.vtkPolyData, self.sceneObjects.roiSinogramTrajectoryModel.GetPolyData())
+
+        points = typing.cast(vtk.vtkPoints, polyData.GetPoints())
+        points.SetData(numpy_to_vtk(trajectory_range, 1))
+
+        cells = polyData.GetLines()
+        idx = numpy_to_vtkIdTypeArray(np.arange(len(trajectory_range)), 1)
+        cells.SetData(len(trajectory_range), idx)
+
+        points.Modified()
+        cells.Modified()
+        polyData.Modified()
+
+        self.sceneObjects.roiSinogramRangeModelDisplay.SetVisibility(1 if is_visible else 0)
+        self.sceneObjects.roiSinogramTrajectoryModelDisplay.SetVisibility(1 if is_visible else 0)
+
+
     def setImageOnSensor(self, state : int):
         if hasattr(self, "sceneObjects") == False or self.sceneObjects == None:
             return
@@ -971,25 +1048,28 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         if state == 2:
             self.sceneObjects.sensorModelDisplay.SetTextureImageDataConnection(self.sceneObjects.sensorModelImageProducer.GetOutputPort())
             self.sceneObjects.sensorModelDisplay.SetOpacity(1.0)
-            self.sceneObjects.sensorModelDisplay.SetInterpolation(0) # Flat
-            self.sceneObjects.sensorModelDisplay.SetScalarRangeFlag(1) # Data range = auto
+            self.sceneObjects.sensorModelDisplay.SetInterpolation(slicer.vtkMRMLDisplayNode.FlatInterpolation)
+            self.sceneObjects.sensorModelDisplay.SetScalarRangeFlag(slicer.vtkMRMLDisplayNode.UseDataScalarRange) # Data range = auto
         else:
             self.sceneObjects.sensorModelDisplay.SetTextureImageDataConnection(None)
             self.sceneObjects.sensorModelDisplay.SetOpacity(0.7)
-            self.sceneObjects.sensorModelDisplay.SetInterpolation(1) # Phong
+            self.sceneObjects.sensorModelDisplay.SetInterpolation(slicer.vtkMRMLDisplayNode.PhongInterpolation)
 
     # -----------------------------
     # Slider / sinogram fetch
     # -----------------------------
     def onIndexChanged(self, value):
+        start = time.time()
         self.currentIndex = value
         self.ui.sliderIndexLabel.setText(f"Index: {value}")
-        start = time.time()
         self.updateSceneData(value)
-        end = time.time()
-        print(f"[DEBUG] updateSceneData took {end - start} seconds")
-        self.sliderDebounceTimer.start()
+        if self.playButtonTimer.isActive():
+            self.loadPreviewSlice()
+        else:
+            self.sliderDebounceTimer.start()
         self.fullDetailDebounceTimer.start()
+        end = time.time()
+        print(f"[DEBUG] onIndexChanged took {end - start} seconds")
 
     def loadPreviewSlice(self):
         try:
@@ -1184,11 +1264,10 @@ class SinoReconsVisual2Logic(ScriptedLoadableModuleLogic):
     def __init__(self):
         ScriptedLoadableModuleLogic.__init__(self)
 
-
 class SinoReconsVisual2Test(ScriptedLoadableModuleTest):
-    def setUp(self):
+    def setup(self):
         slicer.mrmlScene.Clear()
 
     def runTest(self):
-        self.setUp()
+        self.setup()
         self.delayDisplay("Test not implemented.")

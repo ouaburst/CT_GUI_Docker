@@ -324,6 +324,12 @@
           <property name="title">
            <string>Regions of interest</string>
           </property>
+          <property name="flat">
+           <bool>false</bool>
+          </property>
+          <property name="checkable">
+           <bool>true</bool>
+          </property>
           <property name="collapsedHeight">
            <number>1</number>
           </property>
@@ -543,9 +549,9 @@
                       <colorrole role="Highlight">
                        <brush brushstyle="SolidPattern">
                         <color alpha="255">
-                         <red>0</red>
-                         <green>120</green>
-                         <blue>215</blue>
+                         <red>88</red>
+                         <green>116</green>
+                         <blue>120</blue>
                         </color>
                        </brush>
                       </colorrole>

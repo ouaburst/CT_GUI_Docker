@@ -74,46 +74,59 @@ def parser_ConeBeamGeometry(
     DET_CURVATURE_RADIUS = metadata['DET_CURVATURE_RADIUS']
 
     ### Compute shifts
-    shifts, PITCH = compute_z_shifts(angles, axial_positions)
+    #shifts, PITCH = compute_z_shifts(angles, axial_positions)
 
     angles_increasing = np.unwrap(angles)
     angle_partition = odl.nonuniform_partition(angles_increasing)
     # Source Shift
-    src_shift_func = partial(
-        odl.tomo.flying_focal_spot, apart=angle_partition, shifts=shifts
-        )
-    # Detector shift 
-    det_shift_func = partial(
-        odl.tomo.flying_focal_spot, apart=angle_partition, shifts=shifts
-        )
+    #src_shift_func = partial(
+    #    odl.tomo.flying_focal_spot, apart=angle_partition, shifts=shifts
+    #    )
+    ## Detector shift 
+    #det_shift_func = partial(
+    #    odl.tomo.flying_focal_spot, apart=angle_partition, shifts=shifts
+    #    )
     
     # The whole compute_z_shifts function seems a little complicated.
     # Here is how this is handled in odl_stream_server.py which seems simpler.
     # Julius Häger - 2026-03-26
     # Keep an angle→z interpolation
-    #z_shift_func = interp1d(
-    #    angles_increasing, axial_positions, kind="linear",
-    #    bounds_error=False, fill_value=(axial_positions[0], axial_positions[-1]) # type: ignore The function has a special case for fill_value being a 2-tuple.
-    #)
+    z_shift_func = interp1d(
+        angles_increasing, axial_positions, kind="linear",
+        bounds_error=False, fill_value=(axial_positions[0], axial_positions[-1]) # type: ignore The function has a special case for fill_value being a 2-tuple.
+    )
 
-    #def shift_func(angle):
-    #    # FIXME: Use
-    #    #np.interp(angle, angles_increasing, z_corrected)
-    #    res = np.zeros((len(angle), 3))
-    #    res[:, 2] = z_shift_func(angle)
-    #    return res
+    def shift_func(angle):
+        # FIXME: Use
+        #np.interp(angle, angles_increasing, z_corrected)
+        res = np.zeros((len(angle), 3))
+        res[:, 2] = z_shift_func(angle)
+        return res
 
     # NB: det_radius is not equal det_curvature_radius!
+    #geometry = odl.tomo.ConeBeamGeometry(
+    #    angle_partition,
+    #    detector_partition,
+    #    src_radius=SRC_RADIUS,
+    #    det_radius=DET_CURVATURE_RADIUS,
+    #    det_curvature_radius=(DET_CURVATURE_RADIUS,None),  # uncomment for curved detector
+    #    pitch=PITCH,
+    #    src_shift_func=src_shift_func,
+    #    det_shift_func=det_shift_func)
+    
     geometry = odl.tomo.ConeBeamGeometry(
         angle_partition,
         detector_partition,
-        src_radius=SRC_RADIUS,
-        det_radius=DET_RADIUS,
-        det_curvature_radius=(DET_CURVATURE_RADIUS,None),  # uncomment for curved detector
-        pitch=PITCH,
-        src_shift_func=src_shift_func,
-        det_shift_func=det_shift_func)
-    
+        src_radius=metadata["SRC_RADIUS"],
+        det_radius=metadata["DET_CURVATURE_RADIUS"],
+        det_curvature_radius=(metadata["DET_CURVATURE_RADIUS"], None),
+        pitch=0, # type: ignore The argument is a float, the function annotation is wrong.
+        axis=[0, 0, 1],
+        src_shift_func=shift_func,     # could be set to a function of angle if needed
+        det_shift_func=shift_func,
+        translation=[0, 0, 0],
+    )
+
     ray_trafo = odl.tomo.RayTransform(reco_space, geometry, impl='astra_cuda')
     ray_trafo_adjoint = ray_trafo.adjoint
     if torch:

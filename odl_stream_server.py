@@ -202,8 +202,8 @@ def _load_sample_data(sample_dir: Path):
         angle_partition,
         detector_partition,
         src_radius=metadata["SRC_RADIUS"],
-        det_radius=metadata["DET_RADIUS"],
-        det_curvature_radius=[metadata["DET_CURVATURE_RADIUS"], None],
+        det_radius=metadata["DET_CURVATURE_RADIUS"],
+        det_curvature_radius=(metadata["DET_CURVATURE_RADIUS"], None),
         pitch=0, # type: ignore The argument is a float, the function annotation is wrong.
         axis=[0, 0, 1],
         src_shift_func=shift_func,     # could be set to a function of angle if needed
@@ -216,125 +216,6 @@ def _load_sample_data(sample_dir: Path):
 
     end = time.time()
     print(f"Creating odl geometry took {end-start:.3} seconds")
-
-
-#########################################################
-# get_bezier_surface_points
-# Approximate the curved detector panel as a quadratic Bézier
-# surface mesh for visualization (num_v × num_u control).
-#########################################################
-def get_bezier_surface_points(i, num_u=8, num_v=4):
-    """Return (num_v x num_u x 3) detector surface points for index i using a quadratic Bézier grid."""
-    angle = geometry.angles[i]
-    src = np.asarray(geometry.src_position(angle)).reshape(3)
-    det_ctr = np.asarray(geometry.det_refpoint(angle)).reshape(3)
-    du, dv = geometry.det_axes(angle)
-    du = np.asarray(du).reshape(3); dv = np.asarray(dv).reshape(3)
-
-    # Determine tangential curvature range from pixel count and pixel size
-    R_curv = float(metadata["DET_CURVATURE_RADIUS"])
-    n_x = int(metadata["DET_NPX_X"])
-    arc_length = n_x * pix_size_det
-    theta_range = arc_length / R_curv
-
-    # Use 3 control columns in theta (quadratic Bézier) and 3 rows in z
-    theta_vals = np.linspace(-theta_range / 2, theta_range / 2, 3)
-    z_vals = np.linspace(metadata["DET_Z_MIN"], metadata["DET_Z_MAX"], 3)
-
-    # Build 3×3 control grid in 3D
-    control_points = []
-    for z in z_vals:
-        row = []
-        for theta in theta_vals:
-            # Outward normal approx from detector center to source
-            normal = src - det_ctr
-            normal = normal / np.linalg.norm(normal)
-            # Arc along du + sagitta along normal + vertical offset along dv
-            pt = det_ctr + R_curv * np.sin(theta) * du + R_curv * (1 - np.cos(theta)) * normal + z * dv
-            row.append(pt)
-        control_points.append(row)
-    control_points = np.array(control_points)  # (3, 3, 3)
-
-    # Local helper: 1D quadratic Bézier interpolation for 3 control pts
-    def bezier_interp_1d(ctrl, t: float):
-        return (1 - t) ** 2 * ctrl[0] + 2 * (1 - t) * t * ctrl[1] + t ** 2 * ctrl[2]
-
-    # Sample u (tangential) and v (vertical)
-    u_vals = np.linspace(0, 1, num_u)
-    v_vals = np.linspace(0, 1, num_v)
-
-    # Interpolate a dense surface by Bézier in u then v
-    surface_points :list[list[float]] = []
-    surface_uvs : list[list[float]] = []
-    v: np.float64
-    u: np.float64
-    for v in v_vals:
-        row = []
-        row_uv = []
-        for u in u_vals:
-            interm_rows = [None, None, None]
-            for r in range(3):
-                interm_rows[r] = bezier_interp_1d(control_points[r], u)
-            pt = bezier_interp_1d(np.array(interm_rows), v)
-            row.append(pt.tolist())
-            row_uv.append([u, v])
-        surface_points.append(row)
-        surface_uvs.append(row_uv)
-    return surface_points, surface_uvs  # (num_v, num_u, 3), (num_v, num_u, 2)
-
-#########################################################
-# get_geometry_at
-# Compute a simplified panel mesh + 4 FOV rays and the source
-# position for a given index i. If curvature radius > 0, model
-# a curved panel arc; else fall back to a flat rectangle.
-#########################################################
-def get_geometry_at(i, nx=20, nz=2):
-    """Return (src point, detector_mesh grid [nz x nx x 3], fov rays list of [p0, p1])."""
-    angle = geometry.angles[i]
-    src = np.asarray(geometry.src_position(angle)).reshape(3)
-    det_ctr = np.asarray(geometry.det_refpoint(angle)).reshape(3)
-    du, dv = geometry.det_axes(angle)
-    du = np.asarray(du).reshape(3); dv = np.asarray(dv).reshape(3)
-
-    R_curv = float(metadata.get("DET_CURVATURE_RADIUS", 0.0))
-    n_x = int(metadata["DET_NPX_X"]); n_z = int(metadata["DET_NPX_Z"])
-
-    if R_curv > 0:
-        # Build curved panel sample grid in tangential angle (theta) and detector z
-        arc_length = n_x * pix_size_det
-        theta_range = arc_length / R_curv
-        theta_vals = np.linspace(-theta_range / 2, theta_range / 2, nx)
-        z_vals = np.linspace(metadata["DET_Z_MIN"], metadata["DET_Z_MAX"], nz)
-
-        detector_mesh = []
-        for z in z_vals:
-            row = []
-            for theta in theta_vals:
-                normal = src - det_ctr
-                normal = normal / np.linalg.norm(normal)
-                pt = det_ctr + R_curv * np.sin(theta) * du + R_curv * (1 - np.cos(theta)) * normal + z * dv
-                row.append(pt.tolist())
-            detector_mesh.append(row)
-
-        # 4 representative rays to panel corners (min/max theta × min/max z)
-        rays = [
-            [src.tolist(), detector_mesh[0][0]],
-            [src.tolist(), detector_mesh[0][-1]],
-            [src.tolist(), detector_mesh[-1][-1]],
-            [src.tolist(), detector_mesh[-1][0]],
-        ]
-    else:
-        # Flat fallback (unlikely for your setup)
-        w = n_x * pix_size_det / 2.0
-        h = n_z * pix_size_det / 2.0
-        corners = [
-            (det_ctr + sx * w * du + sz * h * dv).tolist()
-            for sx, sz in [(-1, -1), (1, -1), (1, 1), (-1, 1)]
-        ]
-        detector_mesh = [[corners[0], corners[1]], [corners[3], corners[2]]]
-        rays = [[src.tolist(), c] for c in corners]
-
-    return src.tolist(), detector_mesh, rays
 
 #########################################################
 # generate_sensor_geometry
@@ -488,50 +369,6 @@ def serve_file(filename: str):
         return JSONResponse(status_code=404, content={"error": "File not found"})
     # naive media type; override per your needs
     return FileResponse(path, media_type="application/octet-stream")
-
-
-#########################################################
-# stream_window (route)
-# Return a local geometry window around index i (±n):
-# - sources: list of 3D source points
-# - detector_panels: coarse panel meshes
-# - fov_rays: corner rays to panel
-# - bezier_curves: smooth curved panel surfaces
-# Also maintains a cached full source trajectory on disk.
-#########################################################
-@app.get("/stream_window")
-def stream_window(i: int = Query(...), n: int = Query(10), format: str = Query("json")):
-    assert 0 <= i < N, "Index out of bounds"
-
-    if n == 0:
-        i_start = i
-        i_end = i + 1
-        print(f"[INFO] Serving single acquisition at index {i}")
-    else:
-        i_start = max(0, i - n)
-        i_end = min(N, i + n + 1)
-        print(f"[INFO] Serving geometry: i={i}, window=({i_start}, {i_end}), format={format}")
-
-    sources, all_quads, all_rays, bezier_surfaces = [], [], [], []
-    for i_sorted in range(i_start, i_end):
-        src, corners, rays = get_geometry_at(i_sorted)
-        sources.append(src)
-        all_quads.append(corners)
-        all_rays.append(rays)
-        bezier_surfaces.append(get_bezier_surface_points(i_sorted))
-
-    
-    global cached_geometry
-
-    return JSONResponse(content={
-        "sources": sources,
-        "detector_panels": all_quads,
-        "fov_rays": all_rays,
-        "full_trajectory": cached_geometry["full_trajectory"],
-        "total_angles": N,
-        "bezier_curves": bezier_surfaces
-    })
-
 
 #########################################################
 # full_dataset (route)
@@ -734,8 +571,8 @@ def compress_sinogram_slice_avif(i):
 #########################################################
 @app.get("/get_sinogram_slice/{index}")
 def get_sinogram_slice(index: int):
-    print("[DEBUG] Requested index:", index)
-    print("[DEBUG] sinogram shape:", sinogram.shape)
+    print(f"[DEBUG] Requested index: {index}")
+    print(f"[DEBUG] sinogram shape: {sinogram.shape}")
 
     if sinogram.ndim != 3:
         return JSONResponse(
@@ -788,9 +625,9 @@ def get_sinogram_slice(index: int):
 @app.get("/get_sinogram_slice_fast/{index}")
 def get_sinogram_slice_fast(index: int):
     global sample_name
-    print("[DEBUG] Requested index:", index)
+    print(f"[DEBUG] Requested index: {index}")
     sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
-    print("[DEBUG] Cache dir:", sample_sinogram_cache_dir)
+    print(f"[DEBUG] Cache dir: {sample_sinogram_cache_dir}")
 
     file = f"{index}.jp2"
     file_path = sample_sinogram_cache_dir / file
@@ -900,13 +737,28 @@ def run_reconstruction(req: ReconRequest, request: Request):
         "--reconstruction_method", method,
         "--output_folder", str(IMAGES_DIR),
     ]
+
+    out_name = f"{req.specie}_{req.tree_ID}_{req.disk_ID}_{method}_working.nrrd"
+    out_path = IMAGES_DIR / out_name
+    cmd = [
+        "python", "-u", "reconstruction_working.py",
+        "--data_dir", str(sample_dir),
+        "--metadata_path", str(sample_dir / "metadata.json"),
+        "--reconstruction_method", method,
+        "--output_dir", str(IMAGES_DIR),
+    ]
+
     # Pass optional parameters as a JSON blob to the script
     if req.parameters:
         cmd += ["--parameters", json.dumps(req.parameters)]
 
-    print("[INFO] Starting reconstruction:", " ".join(cmd))
+    print(f"[INFO] Starting reconstruction: {' '.join(cmd)}")
+    start = time.time()
     proc = subprocess.run(cmd, cwd=str(BASE_DIR), capture_output=True, text=True)
-    print("[INFO] Reconstruction finished with code:", proc.returncode)
+    end = time.time()
+    print(f"[INFO] Reconstruction finished with code: {proc.returncode} in {end - start} seconds")
+
+    print(proc.stdout)
 
     if proc.returncode != 0:
         print(f"[ERROR] Reconstruction: {proc.stderr}")
@@ -921,6 +773,7 @@ def run_reconstruction(req: ReconRequest, request: Request):
         )
 
     if not out_path.exists():
+        print(f"[ERROR] Expected output not found: {out_path}")
         return JSONResponse(
             status_code=500,
             content={"error": f"Expected output not found: {out_path}"}

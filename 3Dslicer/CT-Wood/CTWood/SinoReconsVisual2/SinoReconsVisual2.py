@@ -27,12 +27,10 @@ except ModuleNotFoundError:
     import nrrd
 
 from urllib.parse import urlparse
-from qt import QProgressDialog
 from slicer.i18n import tr as _
 from slicer.i18n import translate
 from slicer.ScriptedLoadableModule import *
 from slicer.util import VTKObservationMixin
-from qt import QTimer
 
 # -----------------------------
 # Settings helpers
@@ -186,18 +184,18 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
         self.ui.playButton.toggled.connect(self.playButtonToggled)
         self.ui.playSpeedSlider.valueChanged.connect(lambda x : self.ui.playSpeedLabel.setText(f"Speed: x{x}"))
-        self.playButtonTimer = QTimer()
+        self.playButtonTimer = qt.QTimer()
         self.playButtonTimer.setInterval(10)
         self.playButtonTimer.timeout.connect(self.advanceSinogramSlice)
 
         # Slider debounce timer
-        self.sliderDebounceTimer = QTimer()
+        self.sliderDebounceTimer = qt.QTimer()
         self.sliderDebounceTimer.setSingleShot(True)
         self.sliderDebounceTimer.setInterval(1)  # milliseconds
         self.sliderDebounceTimer.timeout.connect(self.loadPreviewSlice)
 
         # Timer to debounce loading full detail (float32) slice
-        self.fullDetailDebounceTimer = QTimer()
+        self.fullDetailDebounceTimer = qt.QTimer()
         self.fullDetailDebounceTimer.setSingleShot(True)
         self.fullDetailDebounceTimer.setInterval(500)
         self.fullDetailDebounceTimer.timeout.connect(self.loadFullDetailSlice)
@@ -1114,6 +1112,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
             start = time.time()
             tex_data = (np.iinfo(np.uint8).max * (img_data_mapped - self.sampleData.sinogram_min) / (self.sampleData.sinogram_max - self.sampleData.sinogram_min)).astype(np.uint8)
+            # FIXME: Do we need to flip here? What is the correct way to show this?
+            # Alternatively the UV coordinates on the sensor geometry is "wrong"...
+            tex_data = np.flip(tex_data, axis=1)
 
             self.sceneObjects.sensorModelImage.SetDimensions(tex_data.shape[1], tex_data.shape[0], 1)
             # FIXME: Do not allocate a new VTK arrray, update the existing one if possible!
@@ -1226,7 +1227,7 @@ def stream_nrrd_from_url(filename, base_url: Optional[str] = None):
         max_progress = min(total_size, 2**31 - 1)
         scale_factor = total_size / max_progress if total_size > max_progress else 1
 
-        progress_dialog = QProgressDialog("Loading file...", "Cancel", 0, max_progress)
+        progress_dialog = qt.QProgressDialog("Loading file...", "Cancel", 0, max_progress)
         progress_dialog.setWindowTitle("Load Progress")
         progress_dialog.setMinimumDuration(0)
         progress_dialog.setValue(0)

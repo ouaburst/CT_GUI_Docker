@@ -538,7 +538,7 @@ def compress_sinogram_slice_jp2(i):
     global sample_name, sinogram, sinogramMin, sinogramMax
     sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
     if Path.exists(sample_sinogram_cache_dir / f"{i}.jp2") == False:
-        slice_2d = slice_2d = sinogram[i, :, :].T
+        slice_2d = sinogram[i, :, :].T
         slice_min = np.min(slice_2d)
         slice_max = np.max(slice_2d)
         img_data = np.iinfo(np.uint8).max * (slice_2d - slice_min) / (slice_max - slice_min)
@@ -549,10 +549,10 @@ def compress_sinogram_slice_jp2(i):
             json.dump({ "slice_min": repr(float(slice_min)), "slice_max": repr(float(slice_max)) }, f)
 
 def compress_sinogram_slice_avif(i):
-    global sample_name, sinogramMin, sinogramMax
+    global sample_name, sinogram, sinogramMin, sinogramMax
     sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
     if Path.exists(sample_sinogram_cache_dir / f"{i}.avif") == False:
-        slice_2d = slice_2d = sinogram[i, :, :].T
+        slice_2d = sinogram[i, :, :].T
         slice_min = np.min(slice_2d)
         slice_max = np.max(slice_2d)
         img_data = np.iinfo(np.uint8).max * (slice_2d - slice_min) / (slice_max - slice_min)

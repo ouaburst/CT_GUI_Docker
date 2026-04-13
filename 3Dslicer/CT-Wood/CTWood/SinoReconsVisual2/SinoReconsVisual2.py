@@ -7,6 +7,8 @@ import slicer
 import vtk
 import time
 import io
+import uuid
+import traceback
 # This is needed for avif support in pillow. 
 # 3D slicer needs to be restarted for the upgrade to properly load.
 #slicer.util.pip_install("--upgrade pillow")
@@ -16,8 +18,7 @@ import numpy as np
 import typing
 from typing import Optional
 from vtkmodules.util.numpy_support import numpy_to_vtk, vtk_to_numpy, numpy_to_vtkIdTypeArray
-from vtkmodules.util.vtkImageImportFromArray import vtkImageImportFromArray
-import gzip
+from dataclasses import dataclass
 
 try:
   import nrrd
@@ -128,10 +129,26 @@ class SampleData:
     def __init__(self):
         pass
 
+@dataclass
+class ROIJsonData:
+    uuid: uuid.UUID
+    position: str
+    size: str
+    sinogram_start_index: int
+    sinogram_end_index: int
+
 class ROIData:
+    uuid: uuid.UUID
     roi_node: slicer.vtkMRMLMarkupsROINode
     sinogram_start_index: int
     sinogram_end_index: int
+
+    def to_data(self) -> ROIJsonData:
+        center = self.roi_node.GetCenter()
+        size = self.roi_node.GetSize()
+        center_str = f"{center.GetX()},{center.GetY()},{center.GetZ()}"
+        size_str = f"{size[0]},{size[1]},{size[2]}"
+        return ROIJsonData(self.uuid, center_str, size_str, self.sinogram_start_index, self.sinogram_end_index)
 
 class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     sceneObjects: Vtk3DSceneObjects
@@ -203,7 +220,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         # FIXME: For some reason it seems like we can't do this here
         # because slicer.mrmlScene isn't set here or something similar.
         # - Julius Häger 2026-03-05
-        #self.sceneObjects = self.createSceneObjects()
+        self.sceneObjects = self.createSceneObjects()
 
         self.ui.roiCenterCoordinateWidget.coordinatesChanged.connect(self.roiCenterChanged)
         self.ui.roiSizeCoordinateWidget.coordinatesChanged.connect(self.roiSizeChanged)
@@ -544,7 +561,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
     def loadSelectedSample(self):
         try:
-            self.destroySceneObjects()
             base = self._currentBaseUrl()
 
             sample = self.ui.sampleSelectorComboBox.currentData
@@ -587,7 +603,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.ui.sliderIndexLabel.setText("Index: 0")
 
             # Load first frame
-            self.sceneObjects = self.createSceneObjects()
             self.onIndexChanged(0)
             self.setImageOnSensor(self.ui.showSinogramOnSensorCheckbox.checkState())
 
@@ -618,12 +633,25 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.ui.roiSizeCoordinateWidget.setMRMLScene(slicer.mrmlScene)
 
         except Exception as e:
+            print(traceback.format_exc())
             slicer.util.errorDisplay(f"Failed to load full dataset:\n{e}")
 
     def addROI(self):
-        name = "roi 1"
+        def roiListWidgetHasName(name: str) -> bool:
+            for row in range(self.ui.roiListWidget.count):
+                item = self.ui.roiListWidget.item(row)
+                if name == item.text:
+                    return True
+            return False
 
+        counter = 1
+        name = f"roi {self.ui.roiListWidget.count + counter}"
+        while roiListWidgetHasName(name):
+            counter += 1
+            name = f"roi {self.ui.roiListWidget.count + counter}"
+        
         roi_data = ROIData()
+        roi_data.uuid = uuid.uuid4() # Random uuid
         roi_data.roi_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsROINode")
         roi_data.roi_node.GetMarkupsDisplayNode().Visibility2DOff()
         roi_data.roi_node.SetName(name)
@@ -632,10 +660,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         roi_data.roi_node.AddObserver(vtk.vtkCommand.ModifiedEvent, self.roiNodeChanged)
 
         roi_data.sinogram_start_index = 0
-        roi_data.sinogram_end_index = self.sampleData.totalSamples
+        roi_data.sinogram_end_index = self.sampleData.totalSamples - 1
 
         item = qt.QListWidgetItem()
-        # FIXME: Find an free name
         item.setText(name)
         item.setFlags(qt.Qt.ItemIsEditable | qt.Qt.ItemIsEnabled)
         item.setData(qt.Qt.UserRole, roi_data)
@@ -659,6 +686,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         if current == None:
             self.ui.roiEditWidget.setEnabled(False)
             self.ui.removeROIButton.setEnabled(False)
+            self.updateRoiSinogramRange(0, 0, False)
         else:
             self.ui.roiEditWidget.setEnabled(True)
             self.ui.removeROIButton.setEnabled(True)
@@ -674,6 +702,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.ui.roiSizeCoordinateWidget.coordinates = f"{size[0]},{size[1]},{size[2]}"
 
             self.ui.sinogramRangeWidget.setValues(itemData.sinogram_start_index, itemData.sinogram_end_index)
+            self.updateRoiSinogramRange(itemData.sinogram_start_index, itemData.sinogram_end_index, True)
 
         if current != None:
             self.setInteractive(current, True)
@@ -761,6 +790,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
     # -----------------------------
     def createSceneObjects(self):
         sceneObjects = Vtk3DSceneObjects()
+        #print(slicer.mrmlScene)
 
         sceneObjects.sourceModel = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", "Source")
         polys = vtk.vtkPolyData()
@@ -1000,39 +1030,40 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         #print(polyData)
 
     def updateRoiSinogramRange(self, start_index: int, end_index: int, is_visible: bool):
-        sources = self.sampleData.geometry.get("sources", np.empty(0))
-        start_source = sources[start_index].reshape(1, 3)
-        end_source = sources[end_index].reshape(1, 3)
-        start_and_end = np.vstack((start_source, end_source))
+        if is_visible:
+            sources = self.sampleData.geometry.get("sources", np.empty(0))
+            start_source = sources[start_index].reshape(1, 3)
+            end_source = sources[end_index].reshape(1, 3)
+            start_and_end = np.vstack((start_source, end_source))
 
-        polyData : vtk.vtkPolyData = typing.cast(vtk.vtkPolyData, self.sceneObjects.roiSinogramRangeModel.GetPolyData())
+            polyData : vtk.vtkPolyData = typing.cast(vtk.vtkPolyData, self.sceneObjects.roiSinogramRangeModel.GetPolyData())
 
-        points = typing.cast(vtk.vtkPoints, polyData.GetPoints())
-        points.SetData(numpy_to_vtk(start_and_end, 1))
+            points = typing.cast(vtk.vtkPoints, polyData.GetPoints())
+            points.SetData(numpy_to_vtk(start_and_end, 1))
 
-        cells = polyData.GetVerts()
-        idx = numpy_to_vtkIdTypeArray(np.arange(len(start_and_end)), 1)
-        cells.SetData(len(start_and_end), idx)
+            cells = polyData.GetVerts()
+            idx = numpy_to_vtkIdTypeArray(np.arange(len(start_and_end)), 1)
+            cells.SetData(len(start_and_end), idx)
 
-        points.Modified()
-        cells.Modified()
-        polyData.Modified()
+            points.Modified()
+            cells.Modified()
+            polyData.Modified()
 
-        trajectory = self.sampleData.geometry.get("full_trajectory", np.empty(0))
-        trajectory_range = trajectory[start_index:end_index]
+            trajectory = self.sampleData.geometry.get("full_trajectory", np.empty(0))
+            trajectory_range = trajectory[start_index:end_index]
 
-        polyData : vtk.vtkPolyData = typing.cast(vtk.vtkPolyData, self.sceneObjects.roiSinogramTrajectoryModel.GetPolyData())
+            polyData : vtk.vtkPolyData = typing.cast(vtk.vtkPolyData, self.sceneObjects.roiSinogramTrajectoryModel.GetPolyData())
 
-        points = typing.cast(vtk.vtkPoints, polyData.GetPoints())
-        points.SetData(numpy_to_vtk(trajectory_range, 1))
+            points = typing.cast(vtk.vtkPoints, polyData.GetPoints())
+            points.SetData(numpy_to_vtk(trajectory_range, 1))
 
-        cells = polyData.GetLines()
-        idx = numpy_to_vtkIdTypeArray(np.arange(len(trajectory_range)), 1)
-        cells.SetData(len(trajectory_range), idx)
+            cells = polyData.GetLines()
+            idx = numpy_to_vtkIdTypeArray(np.arange(len(trajectory_range)), 1)
+            cells.SetData(len(trajectory_range), idx)
 
-        points.Modified()
-        cells.Modified()
-        polyData.Modified()
+            points.Modified()
+            cells.Modified()
+            polyData.Modified()
 
         self.sceneObjects.roiSinogramRangeModelDisplay.SetVisibility(1 if is_visible else 0)
         self.sceneObjects.roiSinogramTrajectoryModelDisplay.SetVisibility(1 if is_visible else 0)
@@ -1161,12 +1192,19 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             #img_data = np.iinfo(np.uint8).max * (slice_2d - min) / (max - min)
             #im = PIL.Image.fromarray(img_data.astype(np.uint8))
             #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}.jp2", format="", irreversible=True, quality_mode="dB", quality_layers=[44])
-            #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}_q57_s10.avif", format="", max_threads=1, quality=57, speed=10)
-            #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}_q57_s8.avif", format="", max_threads=1, quality=57, speed=8)
-            #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}_q57_s6.avif", format="", max_threads=1, quality=57, speed=6)
-            #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}_q57_s4.avif", format="", max_threads=1, quality=57, speed=4)
-            #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}_q57_s2.avif", format="", max_threads=1, quality=57, speed=2)
-            #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}_q57_s0.avif", format="", max_threads=1, quality=57, speed=0)
+
+            #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}_q100_s0_400.avif", format="", max_threads=1, quality=100, speed=0, subsampling="4:0:0")
+            #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}_q57_s7_400.avif", format="", max_threads=1, quality=57, speed=7, subsampling="4:0:0")
+            #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}_q54_s5_400.avif", format="", max_threads=1, quality=54, speed=5, subsampling="4:0:0")
+            #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}_q52_s5_400.avif", format="", max_threads=1, quality=52, speed=5, subsampling="4:0:0")
+            #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}_q48_s5_400.avif", format="", max_threads=1, quality=48, speed=5, subsampling="4:0:0")
+            #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}_q45_s5_400.avif", format="", max_threads=1, quality=45, speed=5, subsampling="4:0:0")
+
+            #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}_q57_s8_400.avif", format="", max_threads=1, quality=57, speed=8, subsampling="4:0:0")
+            #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}_q57_s6_400.avif", format="", max_threads=1, quality=57, speed=6, subsampling="4:0:0")
+            #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}_q57_s4_400.avif", format="", max_threads=1, quality=57, speed=4, subsampling="4:0:0")
+            #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}_q57_s2_400.avif", format="", max_threads=1, quality=57, speed=2, subsampling="4:0:0")
+            #im.save(f"C:/Users/juliu/Documents/SlicerCapture/{index}_q57_s0_400.avif", format="", max_threads=1, quality=57, speed=0, subsampling="4:0:0")
 
             start = time.time()
             if hasattr(self, 'full_detail_volume_node') and self.full_detail_volume_node:

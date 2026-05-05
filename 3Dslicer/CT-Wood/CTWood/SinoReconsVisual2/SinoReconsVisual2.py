@@ -16,22 +16,29 @@ import PIL
 import PIL.Image
 import numpy as np
 import typing
+import re
+from pathlib import Path
 from typing import Optional
 from vtkmodules.util.numpy_support import numpy_to_vtk, vtk_to_numpy, numpy_to_vtkIdTypeArray
 from dataclasses import dataclass
 
-try:
-  import nrrd
-except ModuleNotFoundError:
-  if slicer.util.confirmOkCancelDisplay("This module requires 'pynrrd' Python package. Click OK to install it now."):
-    slicer.util.pip_install("pynrrd")
-    import nrrd
+import slicer.packaging
+slicer.packaging.pip_ensure("pynrrd", requester="SinoReconsVisual2")
+import nrrd
+
+slicer.packaging.pip_ensure("pathvalidate", requester="SinoReconsVisual2")
+import pathvalidate
 
 from urllib.parse import urlparse
 from slicer.i18n import tr as _
 from slicer.i18n import translate
 from slicer.ScriptedLoadableModule import *
 from slicer.util import VTKObservationMixin
+
+class VersionNotSupportedError(Exception):
+    def __init__(self, message, version) -> None:
+        super().__init__(message)
+        self.version = version
 
 # -----------------------------
 # Settings helpers
@@ -116,6 +123,10 @@ class Vtk3DSceneObjects:
         pass
 
 class SampleData:
+    specie: str
+    tree_ID: int
+    disk_ID: int
+
     totalSamples: int
 
     sinogram_min: np.float32
@@ -138,10 +149,15 @@ class ROIJsonData:
     sinogram_end_index: int
 
 class ROIData:
+    name: str
     uuid: uuid.UUID
     roi_node: slicer.vtkMRMLMarkupsROINode
+    roi_list_widget: qt.QListWidgetItem
     sinogram_start_index: int
     sinogram_end_index: int
+    _modified: bool = False
+
+    original_path: Path|None = None
 
     def to_data(self) -> ROIJsonData:
         center = self.roi_node.GetCenter()
@@ -149,6 +165,28 @@ class ROIData:
         center_str = f"{center.GetX()},{center.GetY()},{center.GetZ()}"
         size_str = f"{size[0]},{size[1]},{size[2]}"
         return ROIJsonData(self.uuid, center_str, size_str, self.sinogram_start_index, self.sinogram_end_index)
+
+class QROINameValidator(qt.QValidator):
+    roi_list: qt.QListWidget
+
+    def __init__(self, parent = None):
+        super().__init__(parent)
+
+    def validate(self, input: str, pos: int) -> qt.QValidator.State:
+        #print(f"validate: {input}")
+        try:
+            pathvalidate.validate_filename(f"{input}.json", platform=pathvalidate.Platform.UNIVERSAL)
+        except pathvalidate.ValidationError as e:
+            print(f"{e}")
+            if e.reason == pathvalidate.ErrorReason.RESERVED_NAME:
+                print(f"validate: {input} reserved")
+                return qt.QValidator.Intermediate
+            else:
+                print(f"validate: {input} invalid")
+                return qt.QValidator.Invalid
+        print(f"validate: {input} ok")
+        return qt.QValidator.Acceptable
+            
 
 class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     sceneObjects: Vtk3DSceneObjects
@@ -222,23 +260,29 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         # - Julius Häger 2026-03-05
         self.sceneObjects = self.createSceneObjects()
 
-        self.ui.roiCenterCoordinateWidget.coordinatesChanged.connect(self.roiCenterChanged)
-        self.ui.roiSizeCoordinateWidget.coordinatesChanged.connect(self.roiSizeChanged)
+        print(self.ui.roiCenterCoordinateWidget.coordinatesChanged.typeName())
+        print(self.ui.roiCenterCoordinateWidget.coordinatesChanged.parameterTypes())
+        print(self.ui.roiCenterCoordinateWidget.coordinatesChanged.parameterNames())
+        #self.ui.roiCenterCoordinateWidget.coordinatesChanged.connect(self.roiCenterChanged)
+        #self.ui.roiSizeCoordinateWidget.coordinatesChanged.connect(self.roiSizeChanged)
+        self.ui.roiCenterCoordinateWidget.connect("coordinatesChanged(double, double, double, double)", self.roiCenterChanged)
+        self.ui.roiSizeCoordinateWidget.connect("coordinatesChanged(double, double, double, double)", self.roiSizeChanged)
         self.ui.sinogramRangeWidget.valuesChanged.connect(self.roiSinogramValuesChanged)
 
-        self.ui.addROIButton.clicked.connect(self.addROI)
-        self.ui.removeROIButton.clicked.connect(self.removeROI)
+        self.ui.addROIButton.clicked.connect(self.addNewROIClicked)
+        self.ui.removeROIButton.clicked.connect(self.removeROIClicked)
         self.ui.roiListWidget.currentItemChanged.connect(self.selectROI)
         self.ui.roiListWidget.itemChanged.connect(self.roiItemChanged)
         self.selectROI(None, None)
         self.ui.roiListWidgetEventFilter = self.ROIListEventFilter(self.ui.roiListWidget)
+        self.ui.roiSaveButton.clicked.connect(self.saveROIClicked)
 
     class ROIListEventFilter(qt.QObject):
         roi_list_widget: qt.QListWidget
-        roi_list_widget_viewport: typing.Any
+        roi_list_widget_viewport: typing.Any # FIXME: real type..
 
         def __init__(self, roi_list_widget: qt.QListWidget):
-            qt.QObject.__init__(self)
+            super().__init__()
             self.roi_list_widget = roi_list_widget
             self.roi_list_widget.installEventFilter(self)
 
@@ -250,8 +294,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             # The crashing only happens sometimes and it seems to be related to recursive calls to eventFilter
             # though I have no idea how this function is getting called recursively...
             # - Julius Häger 2026-04-08
-            if event.type() == qt.QEvent.InputMethodQuery:
-                return False
+            #if event.type() == qt.QEvent.InputMethodQuery:
+            #    return False
             
             if source is self.roi_list_widget:
                 if event.type() == qt.QEvent.KeyPress:
@@ -579,6 +623,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             response_json = response.json()
             self.sampleData.sinogram_min = response_json["sinogram_min"]
             self.sampleData.sinogram_max = response_json["sinogram_max"]
+            self.sampleData.specie = str(sample["specie"])
+            self.sampleData.tree_ID = int(sample["tree_ID"])
+            self.sampleData.disk_ID = int(sample["disk_ID"])
             end = time.time()
             print(f"[INFO] Selecting sample took: {end-start} seconds")
 
@@ -632,55 +679,156 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.ui.roiCenterCoordinateWidget.setMRMLScene(slicer.mrmlScene)
             self.ui.roiSizeCoordinateWidget.setMRMLScene(slicer.mrmlScene)
 
+            sample_roi_dir = Path(os.path.expanduser(f"~/Documents/SinoRecons/{self.sampleData.specie}_{self.sampleData.tree_ID}_{self.sampleData.disk_ID}/"))
+            self.clearROIs()
+            self.loadROIsForSample(sample_roi_dir)
+
         except Exception as e:
             print(traceback.format_exc())
             slicer.util.errorDisplay(f"Failed to load full dataset:\n{e}")
 
-    def addROI(self):
-        def roiListWidgetHasName(name: str) -> bool:
-            for row in range(self.ui.roiListWidget.count):
-                item = self.ui.roiListWidget.item(row)
-                if name == item.text:
+    class QListWidgetItemModifiedDelegate(qt.QStyledItemDelegate):
+        def __init__(self, parent):
+            super().__init__(parent)
+
+        def listContainsName(self, name: str, ignore_index: int) -> bool:
+            list = self.parent()
+            for row in range(list.count):
+                if row == ignore_index:
+                    continue
+                item = list.item(row)
+                print(item.text())
+                if name == item.text():
                     return True
             return False
 
-        counter = 1
-        name = f"roi {self.ui.roiListWidget.count + counter}"
-        while roiListWidgetHasName(name):
-            counter += 1
+        def createEditor(self, parent, option, index) -> qt.QWidget:
+            widget = qt.QStyledItemDelegate.createEditor(self, parent, option, index)
+            widget.setValidator(QROINameValidator(widget))
+            return widget
+
+        def setModelData(self, editor: qt.QWidget, model: qt.QAbstractItemModel, index: qt.QModelIndex) -> None:
+            roi_data: ROIData = index.data(qt.Qt.UserRole)
+            user_property = editor.metaObject().userProperty().name()
+            edit_str: str = editor.property(user_property)
+
+            if self.listContainsName(edit_str, index.row()):
+                match = re.match("\\((\\d+)\\)$", edit_str)
+                if match:
+                    edit_str = edit_str.removesuffix(f"({match.group(1)})") + f"({int(match.group(1)) + 1})"
+                else:
+                    edit_str = edit_str + " (1)"
+
+            if edit_str != roi_data.name:
+                roi_data.name = edit_str
+                # FIXME: This is a hack as we can't call roiUpdateModified here.
+                # Instead we mark it as modified here and then in roiItemChanged
+                # we call roiUpdateModified with the updated _modified value.
+                # - Julius Häger 2026-04-29
+                roi_data._modified = True
+            if (roi_data._modified):
+                edit_str += "*"
+            model.setData(index, edit_str, qt.Qt.EditRole)
+            #with open("test.txt", "a") as f:
+            #    f.write(f"setModelData {editor} {model} {index} editor user property: {editor.metaObject().userProperty().name()}, index EditRole data: {index.data(qt.Qt.EditRole)} UserRole {index.data(qt.Qt.UserRole).name}\n")
+
+        def setEditorData(self, editor: qt.QWidget, index: qt.QModelIndex) -> None:
+            #print(f"setEditorData {editor} {index} {editor.data(qt.Qt.UserRole)}")
+            roi_data: ROIData = index.data(qt.Qt.UserRole)
+            user_property = editor.metaObject().userProperty().name()
+            editor.setProperty(user_property, roi_data.name)
+            #with open("test.txt", "a") as f:
+            #    f.write(f"setEditorData {editor} {index} {editor.metaObject().userProperty().name()} index EditRole data: {index.data(qt.Qt.EditRole)} UserRole {index.data(qt.Qt.UserRole).name}\n")
+
+    def addNewROIClicked(self):
+        self.addROI()
+
+    def addROI(self,
+               name: str|None = None,
+               id: uuid.UUID|None = None,
+               center: vtk.vtkVector3f|None = None,
+               size: vtk.vtkVector3f|None = None,
+               sinogram_start: int|None = None,
+               sinogram_end: int|None = None,
+               file: Path|None = None) -> ROIData:
+        
+        def roiListWidgetHasName(name: str) -> bool:
+            for row in range(self.ui.roiListWidget.count):
+                item = self.ui.roiListWidget.item(row)
+                if name == item.text():
+                    return True
+            return False
+
+        if name is None:
+            counter = 1
             name = f"roi {self.ui.roiListWidget.count + counter}"
+            while roiListWidgetHasName(name):
+                counter += 1
+                name = f"roi {self.ui.roiListWidget.count + counter}"
         
         roi_data = ROIData()
-        roi_data.uuid = uuid.uuid4() # Random uuid
+        roi_data.name = name
+        roi_data.uuid = uuid.uuid4() if id is None else id # uuid4 = Random uuid
         roi_data.roi_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsROINode")
         roi_data.roi_node.GetMarkupsDisplayNode().Visibility2DOff()
         roi_data.roi_node.SetName(name)
 
+        if center is not None:
+            roi_data.roi_node.SetCenter(center)
+        
+        if size is not None:
+            roi_data.roi_node.SetSize((size.GetX(), size.GetY(), size.GetZ()))
+
         # Update UI with the new roi
         roi_data.roi_node.AddObserver(vtk.vtkCommand.ModifiedEvent, self.roiNodeChanged)
 
-        roi_data.sinogram_start_index = 0
-        roi_data.sinogram_end_index = self.sampleData.totalSamples - 1
+        roi_data.sinogram_start_index = 0 if sinogram_start is None else sinogram_start
+        roi_data.sinogram_end_index = self.sampleData.totalSamples - 1 if sinogram_end is None else sinogram_end
 
-        item = qt.QListWidgetItem()
-        item.setText(name)
-        item.setFlags(qt.Qt.ItemIsEditable | qt.Qt.ItemIsEnabled)
-        item.setData(qt.Qt.UserRole, roi_data)
+        roi_data.roi_list_widget = qt.QListWidgetItem()
+        roi_data.roi_list_widget.setText(name)
+        roi_data.roi_list_widget.setFlags(qt.Qt.ItemIsEditable | qt.Qt.ItemIsEnabled)
+        roi_data.roi_list_widget.setData(qt.Qt.UserRole, roi_data)
 
-        self.setInteractive(item, False)
+        self.setInteractive(roi_data.roi_list_widget, False)
 
-        self.ui.roiListWidget.addItem(item)
-        self.ui.roiListWidget.setCurrentItem(item)
+        self.ui.roiListWidget.addItem(roi_data.roi_list_widget)
+        self.ui.roiListWidget.setCurrentItem(roi_data.roi_list_widget)
+        self.ui.roiListWidget.setItemDelegate(self.QListWidgetItemModifiedDelegate(self.ui.roiListWidget))
+
+        roi_data.original_path = file
+
+        self.roiUpdateModified(roi_data, True)
+
+        return roi_data
 
     def roiItemChanged(self, item: qt.QListWidgetItem):
         itemData: ROIData = item.data(qt.Qt.UserRole)
-        itemData.roi_node.SetName(item.text())
+        new_name = item.text()
+        print(f"roiItemChanged: {new_name} old name: {itemData.name}")
+        itemData.roi_node.SetName(new_name)
+        # This is the second part of the hack in QListWidgetItemModifiedDelegate.
+        # At this point the delegate has updated _modified after the list item was edited
+        # so now we must actually apply the modified update.
+        # - Julius Häger 2026-04-29
+        self.roiUpdateModified(itemData, itemData._modified)
 
-    def removeROI(self):
+    def clearROIs(self):
+        for row in reversed(range(self.ui.roiListWidget.count)):
+            item = self.ui.roiListWidget.takeItem(row)
+            itemData: ROIData = item.data(qt.Qt.UserRole)
+            slicer.mrmlScene.RemoveNode(itemData.roi_node)
+
+    def removeROIClicked(self):
         if self.ui.roiListWidget.currentRow != -1:
             item = self.ui.roiListWidget.takeItem(self.ui.roiListWidget.currentRow)
             itemData: ROIData = item.data(qt.Qt.UserRole)
             slicer.mrmlScene.RemoveNode(itemData.roi_node)
+
+            if itemData.original_path != None:
+                slicer.packaging.pip_ensure("Send2Trash", requester="SinoReconsVisual2")
+                import send2trash
+                send2trash.send2trash(itemData.original_path)
         
     def selectROI(self, current: qt.QListWidgetItem, previous: qt.QListWidgetItem):
         if current == None:
@@ -697,13 +845,21 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             center = roiNode.GetCenter()
             size = roiNode.GetSize()
 
-            # FIXME: Very inefficient to set the coordinates through strings
-            self.ui.roiCenterCoordinateWidget.coordinates = f"{center.GetX()},{center.GetY()},{center.GetZ()}"
-            self.ui.roiSizeCoordinateWidget.coordinates = f"{size[0]},{size[1]},{size[2]}"
+            self.ui.roiCenterCoordinateWidget.blockSignals(True)
+            self.ui.roiCenterCoordinateWidget.setCoordinates(center.GetX(), center.GetY(), center.GetZ(), 0)
+            self.ui.roiCenterCoordinateWidget.blockSignals(False)
 
+            self.ui.roiSizeCoordinateWidget.blockSignals(True)
+            self.ui.roiSizeCoordinateWidget.setCoordinates(size[0], size[1], size[2], 0)
+            self.ui.roiSizeCoordinateWidget.blockSignals(False)
+
+            self.ui.sinogramRangeWidget.blockSignals(True)
             self.ui.sinogramRangeWidget.setValues(itemData.sinogram_start_index, itemData.sinogram_end_index)
+            self.ui.sinogramRangeWidget.blockSignals(False)
             self.updateRoiSinogramRange(itemData.sinogram_start_index, itemData.sinogram_end_index, True)
 
+            self.ui.roiSaveButton.setEnabled(itemData._modified)
+            
         if current != None:
             self.setInteractive(current, True)
 
@@ -720,7 +876,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             roiDisplayNode.SetFillOpacity(0.7)
             roiDisplayNode.SetOutlineOpacity(1.0)
             roiDisplayNode.SetTranslationHandleVisibility(True)
-            roiDisplayNode.SetRotationHandleVisibility(True)
+            
             roiDisplayNode.SetScaleHandleVisibility(True)
         else:
             roiDisplayNode.SetSelectedColor(0.1, 0.1, 0.1)
@@ -728,48 +884,180 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             roiDisplayNode.SetFillOpacity(0.2)
             roiDisplayNode.SetOutlineOpacity(0.4)
 
+    def saveROIClicked(self):
+        if self.ui.roiListWidget.currentRow != -1:
+            item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
+            itemData: ROIData = item.data(qt.Qt.UserRole)
+            
+            sample_dir = Path(os.path.expanduser(f"~/Documents/SinoRecons/{self.sampleData.specie}_{self.sampleData.tree_ID}_{self.sampleData.disk_ID}"))
+            self.saveROIToFile(itemData, sample_dir)
+        else:
+            print("[ERROR] There is no ROI selected, can't save.")
+
+    def saveROIToFile(self, roi: ROIData, sample_dir: Path) -> None:
+        path =  sample_dir / f"{roi.name}.json"
+        # FIXME: Check that the original and new path are in the same directory??
+        if path != roi.original_path and roi.original_path != None:
+            file_uuid: uuid.UUID
+            with open(roi.original_path, "r") as f:
+                data = json.load(f)
+                file_uuid = uuid.UUID(data["uuid"])
+            if file_uuid == roi.uuid:
+                os.remove(roi.original_path)
+                print(f"Removed old file {roi.original_path} -> {path}")
+
+        data: dict[str, typing.Any] = {}
+        data["version"] = 0
+        data["uuid"] = str(roi.uuid)
+        # FIXME: type
+        center: vtk.vtkVector3d = roi.roi_node.GetCenter()
+        size = roi.roi_node.GetSize()
+        data["center"] = (center.GetX(), center.GetY(), center.GetZ())
+        data["size"] = (size[0], size[1], size[2])
+        data["sinogram_range"] = (roi.sinogram_start_index, roi.sinogram_end_index)
+
+        # FIXME: If this ROI has changed name we want to delete the old file...
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, 'w') as f:
+            json.dump(data, f)
+        roi.original_path = path
+        self.roiUpdateModified(roi, False)
+        print(f"Saved roi to {path.absolute()}")
+
+    def loadROIsForSample(self, sample_directory: Path) -> None:
+        if not Path.exists(sample_directory):
+            return
+        paths = os.listdir(sample_directory)
+        for path in paths:
+            print(f"Loading {path} {os.path.isfile(sample_directory / path)} {path.endswith(".json")}")
+            if os.path.isfile(sample_directory / path) and path.endswith(".json"):
+                print(f"Loading {path}")
+                self.loadROIFromFile(sample_directory / path)
+
+    def loadROIFromFile(self, path: Path):
+        data: dict[str, typing.Any]
+        with open(path, "r") as f:
+            data = json.load(f)
+        version = int(data["version"])
+        if version != 0:
+            raise VersionNotSupportedError("The ROI file version is newer than this plugin understands. Maybe there is a new plugin version?", version)
+        name = path.stem
+        id = uuid.UUID(data["uuid"])
+        center = vtk.vtkVector3f(data["center"])
+        size = vtk.vtkVector3f(data["size"])
+        sinogram_start_index = int(data["sinogram_range"][0])
+        sinogram_end_index = int(data["sinogram_range"][1])
+
+        file_mtime = os.path.getmtime(path)
+
+        # FIXME: Check if the uuid is unique
+        should_add: bool = True
+        for row in reversed(range(self.ui.roiListWidget.count)):
+            item = self.ui.roiListWidget.item(row)
+            itemData: ROIData = item.data(qt.Qt.UserRole)
+            if itemData.uuid == id:
+                if itemData.original_path == None:
+                    # We are the source of truth, remove this item and keep this item
+                    should_add = True
+                    
+                    # Remove the existing item from the list
+                    item = self.ui.roiListWidget.takeItem(row)
+                    itemData: ROIData = item.data(qt.Qt.UserRole)
+                    slicer.mrmlScene.RemoveNode(itemData.roi_node)
+
+                    print(f"Duplicate uuid found. But existing item did not have a file, so we use '{path}'.")
+                else:
+                    mtime = os.path.getmtime(itemData.original_path)
+                    if file_mtime > mtime:
+                        # The file we are reading right now is the source of truth...
+                        should_add = True
+
+                        # Remove the existing item from the list
+                        item = self.ui.roiListWidget.takeItem(row)
+                        itemData: ROIData = item.data(qt.Qt.UserRole)
+                        slicer.mrmlScene.RemoveNode(itemData.roi_node)
+
+                        print(f"Duplicate uuid found for files '{itemData.original_path}' and '{path}'. '{path}' had newer modification date so I'm using that.")
+                    else:
+                        # The already loaded file is the source of truth. 
+                        # Skip loading this file.
+                        should_add = False
+                        print(f"Duplicate uuid found for files '{itemData.original_path}' and '{path}'. '{itemData.original_path}' had newer modification date so I'm using that.")
+
+        if should_add:
+            roi = self.addROI(name, id, center, size, sinogram_start_index, sinogram_end_index, path)
+            self.roiUpdateModified(roi, False)
+
     # PythonQt seems to bind the parameter as a 'double'
     # instead of a 'double*' meaning the parameter is
     # completely useless in python.
     # - Julius Häger 2026-04-07
-    def roiCenterChanged(self, _broken):
+    # https://github.com/commontk/CTK/pull/1417 updates this and adds a x,y,z,w overload
+    # - Julius Häger 2026-04-29
+    def roiCenterChanged(self, x: float, y: float, z: float, w: float):
         if self.ui.roiListWidget.currentRow == -1:
             return
         
-        newCoords = [float(x) for x in self.ui.roiCenterCoordinateWidget.coordinates.split(',')]
-
         item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
         itemData: ROIData = item.data(qt.Qt.UserRole)
         roiNode = itemData.roi_node
 
-        roiNode.SetCenter(newCoords)
+        roiNode.SetCenter([x, y, z])
+        self.roiUpdateModified(itemData, True)
 
-    def roiSizeChanged(self, _broken):
+    def roiSizeChanged(self, x: float, y: float, z: float, w: float):
         if self.ui.roiListWidget.currentRow == -1:
             return
         
-        newSize = [float(x) for x in self.ui.roiSizeCoordinateWidget.coordinates.split(',')]
-
         item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
         itemData: ROIData = item.data(qt.Qt.UserRole)
         roiNode = itemData.roi_node
 
-        roiNode.SetSize(newSize)
+        roiNode.SetSize([x, y, z])
 
+        self.roiUpdateModified(itemData, True)
+
+    def getROIDataFromNode(self, roi_node: slicer.vtkMRMLMarkupsROINode) -> ROIData|None:
+        for row in range(self.ui.roiListWidget.count):
+            item = self.ui.roiListWidget.item(row)
+            itemData: ROIData = item.data(qt.Qt.UserRole)
+            if itemData.roi_node == roi_node:
+                return itemData
+        return None
+    
     # Called when the roi is changed using the 3D/2D widgets.
     def roiNodeChanged(self, roiNode, event):
         # FIXME: Only change the UI if this is the active roiNode?
         center = roiNode.GetCenter()
         size = roiNode.GetSize()
 
+        # FIXME: Check that anything actually changed?
+        modified = False
+
         # FIXME: Very inefficient to set the coordinates through strings
+        # FIXME: The coordinate string that is returned is rounded to the number of decimals used to display
+        # which means we will never be able to accurately get the values from the control... so the modified check will fail.
         self.ui.roiCenterCoordinateWidget.blockSignals(True)
-        self.ui.roiCenterCoordinateWidget.coordinates = f"{center.GetX()},{center.GetY()},{center.GetZ()}"
+        old_center = [self.ui.roiCenterCoordinateWidget.getCoordinate(0), self.ui.roiCenterCoordinateWidget.getCoordinate(1), self.ui.roiCenterCoordinateWidget.getCoordinate(2)]
+        if old_center != [center.GetX(),center.GetY(),center.GetZ()]:
+            print(f"change center! {old_center} -> {[center.GetX(),center.GetY(),center.GetZ()]}")
+            #self.ui.roiCenterCoordinateWidget.coordinates = new_center_str
+            self.ui.roiCenterCoordinateWidget.setCoordinates(center.GetX(), center.GetY(), center.GetZ(), 0)
+            modified = True
         self.ui.roiCenterCoordinateWidget.blockSignals(False)
 
+
         self.ui.roiSizeCoordinateWidget.blockSignals(True)
-        self.ui.roiSizeCoordinateWidget.coordinates = f"{size[0]},{size[1]},{size[2]}"
+        old_size = [self.ui.roiSizeCoordinateWidget.getCoordinate(0), self.ui.roiSizeCoordinateWidget.getCoordinate(1), self.ui.roiSizeCoordinateWidget.getCoordinate(2)]
+        if old_size != [size[0],size[1],size[2]]:
+            print(f"change size! {old_size} -> {[size[0],size[1],size[2]]}")
+            self.ui.roiSizeCoordinateWidget.setCoordinates(size[0],size[1],size[2], 0)
+            modified = True
         self.ui.roiSizeCoordinateWidget.blockSignals(False)
+
+        roi = self.getROIDataFromNode(roiNode)
+        if roi is not None and modified:
+            self.roiUpdateModified(roi, True)
 
     def roiSinogramValuesChanged(self, minVal: float, maxVal: float):
         if self.ui.roiListWidget.currentRow == -1:
@@ -784,6 +1072,21 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         itemData.sinogram_end_index = maxVal
 
         self.updateRoiSinogramRange(minVal, maxVal, True)
+
+        self.roiUpdateModified(itemData, True)
+
+    def roiUpdateModified(self, roi: ROIData, modified: bool):
+        roi._modified = modified
+
+        #import inspect
+        if roi._modified:
+            #print(f"{roi.name} is modified {inspect.stack()[1][3]} {inspect.stack()[2][3]} {inspect.stack()[3][3]}")
+            roi.roi_list_widget.setText(f"{roi.name}*")
+        else:
+            #print(f"{roi.name} no longer modified {inspect.stack()[1][3]} {inspect.stack()[2][3]} {inspect.stack()[3][3]}")
+            roi.roi_list_widget.setText(roi.name)
+
+        self.ui.roiSaveButton.setEnabled(roi._modified)
 
     # -----------------------------
     # Rendering helpers
@@ -857,6 +1160,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         sceneObjects.sinogramOutlineDisplay.SetSliceDisplayModeToProjection()
         sceneObjects.sinogramOutlineDisplay.Visibility3DOff()
         sceneObjects.sinogramOutlineDisplay.Visibility2DOn()
+        sceneObjects.sinogramOutlineDisplay.VisibilityOff()
 
         sceneObjects.roiSinogramRangeModel = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", "ROI Sinogram Range")
         polys = vtk.vtkPolyData()
@@ -1137,6 +1441,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             bounds = np.empty(6)
             self.volume_node.GetBounds(bounds)
             self.sceneObjects.sinogramOutline.SetBounds(*bounds)
+            self.sceneObjects.sinogramOutlineDisplay.VisibilityOn()
 
             end = time.time()
             print(f"[DEBUG] Adding/modifying volume took: {end - start} s")
@@ -1223,6 +1528,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             bounds = np.empty(6)
             self.full_detail_volume_node.GetBounds(bounds)
             self.sceneObjects.sinogramOutline.SetBounds(*bounds)
+            self.sceneObjects.sinogramOutlineDisplay.VisibilityOn()
 
             end = time.time()
             print(f"[DEBUG] Adding/modifying volume took: {end - start} s")
@@ -1253,6 +1559,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 # HTTP helpers (use saved base URL)
 # -----------------------------
 def stream_nrrd_from_url(filename, base_url: Optional[str] = None):
+
     base = normalize_base_url(base_url or get_saved_base_url())
     url = f"{base}/images/{filename}"
     temp_file_path = os.path.join(slicer.app.temporaryPath, filename)

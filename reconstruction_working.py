@@ -315,7 +315,7 @@ def main() -> None:
         print_debug("[RUN] Building FBP operator ...")
 
         # Build filtered backprojection operator from the forward model
-        fbp = odl.tomo.fbp_op(bundle.ray_trafo, **params)
+        fbp = odl.applications.tomo.analytic.filtered_back_projection.fbp_op(bundle.ray_trafo, **params)
 
         print_debug("[RUN] Applying FBP ...")
 

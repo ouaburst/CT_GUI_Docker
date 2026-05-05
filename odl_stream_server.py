@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import json
 import odl
+from odl.applications.tomo.geometry.conebeam import ConeBeamGeometry
 from scipy.interpolate import interp1d
 import tempfile
 import nrrd
@@ -40,7 +41,7 @@ angles = None            # raw angles array (not directly used after sort)
 z_positions = None       # raw axial positions (not directly used after correction)
 shifts = None            # per-projection shifts (x,y,z)
 metadata: dict           # dict with geometry + reconstruction grid settings
-geometry: odl.tomo.ConeBeamGeometry # ODL ConeBeamGeometry constructed from dataset
+geometry: ConeBeamGeometry # ODL ConeBeamGeometry constructed from dataset
 N = 0                    # number of projections
 pix_size_det = 0.0       # detector pixel size (mm)
 cached_geometry: dict   # the geometry data
@@ -198,11 +199,11 @@ def _load_sample_data(sample_dir: Path):
         return res
 
     # Build helical cone-beam geometry; det_curvature_radius[0] is tangential curvature
-    geometry = odl.tomo.ConeBeamGeometry(
+    geometry = ConeBeamGeometry(
         angle_partition,
         detector_partition,
         src_radius=metadata["SRC_RADIUS"],
-        det_radius=metadata["DET_CURVATURE_RADIUS"],
+        det_radius=metadata["DET_RADIUS"],
         det_curvature_radius=(metadata["DET_CURVATURE_RADIUS"], None),
         pitch=0, # type: ignore The argument is a float, the function annotation is wrong.
         axis=[0, 0, 1],
@@ -224,7 +225,7 @@ def _load_sample_data(sample_dir: Path):
 # surface mesh for visualization (num_v × num_u control).
 # 4 FOV rays and the source position for a given index i.
 #########################################################
-def generate_sensor_geometry(geometry: odl.tomo.ConeBeamGeometry, num_u=8, num_v=4):
+def generate_sensor_geometry(geometry: ConeBeamGeometry, num_u=8, num_v=4):
     angles = geometry.angles
     src_positions = geometry.src_position(angles)
     det_refpoints = geometry.det_refpoint(angles)
@@ -738,15 +739,15 @@ def run_reconstruction(req: ReconRequest, request: Request):
         "--output_folder", str(IMAGES_DIR),
     ]
 
-    out_name = f"{req.specie}_{req.tree_ID}_{req.disk_ID}_{method}_working.nrrd"
-    out_path = IMAGES_DIR / out_name
-    cmd = [
-        "python", "-u", "reconstruction_working.py",
-        "--data_dir", str(sample_dir),
-        "--metadata_path", str(sample_dir / "metadata.json"),
-        "--reconstruction_method", method,
-        "--output_dir", str(IMAGES_DIR),
-    ]
+    #out_name = f"{req.specie}_{req.tree_ID}_{req.disk_ID}_{method}_working.nrrd"
+    #out_path = IMAGES_DIR / out_name
+    #cmd = [
+    #    "python", "-u", "reconstruction_working.py",
+    #    "--data_dir", str(sample_dir),
+    #    "--metadata_path", str(sample_dir / "metadata.json"),
+    #    "--reconstruction_method", method,
+    #    "--output_dir", str(IMAGES_DIR),
+    #]
 
     # Pass optional parameters as a JSON blob to the script
     if req.parameters:

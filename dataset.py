@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 import json
 import odl
+from odl.applications.tomo.geometry.conebeam import ConeBeamGeometry
 from odl.contrib.torch import OperatorModule
 
 from torch.utils.data import Dataset
@@ -241,7 +242,7 @@ if __name__ == '__main__':
     sample = dataset.__getitem__(0)
     
     # Extract geometry from first sample
-    geometry: odl.tomo.ConeBeamGeometry = sample['A'].geometry
+    geometry: ConeBeamGeometry = sample['A'].geometry
     source_positions = geometry.src_position(geometry.angles)
     print(source_positions)
 

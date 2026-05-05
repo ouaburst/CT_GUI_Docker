@@ -103,7 +103,7 @@ def main():
             elif args.reconstruction_method == 'fbp':
                 _progress("[FBP] Building FBP operator …")
                 # ODL builds a filtered-backprojection operator compatible with A
-                fbp_op = odl.tomo.fbp_op(sample['A'], **params)
+                fbp_op = odl.applications.tomo.analytic.filtered_back_projection.fbp_op(sample['A'], **params)
                 _progress("[FBP] Filtering/backprojecting …")
                 reconstruction = fbp_op(sample['sinogram'])
                 _progress("[FBP] Done.")

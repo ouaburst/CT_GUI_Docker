@@ -31,8 +31,8 @@
         <rect>
          <x>0</x>
          <y>0</y>
-         <width>694</width>
-         <height>1307</height>
+         <width>719</width>
+         <height>1186</height>
         </rect>
        </property>
        <property name="sizePolicy">
@@ -465,60 +465,6 @@
                  </sizepolicy>
                 </property>
                 <layout class="QGridLayout" name="gridLayout_3">
-                 <item row="0" column="0">
-                  <widget class="QLabel" name="regionOfInterestLabel">
-                   <property name="text">
-                    <string>Region of interest</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="1" column="0">
-                  <widget class="QLabel" name="roiCenterLabel">
-                   <property name="toolTip">
-                    <string>Center position of the region of interest.</string>
-                   </property>
-                   <property name="text">
-                    <string>Center</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="1" column="1">
-                  <widget class="qMRMLCoordinatesWidget" name="roiCenterCoordinateWidget">
-                   <property name="quantity">
-                    <string notr="true">length</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="2" column="0">
-                  <widget class="QLabel" name="roiSizeLabel">
-                   <property name="toolTip">
-                    <string>The size of the region of interest.</string>
-                   </property>
-                   <property name="frameShape">
-                    <enum>QFrame::NoFrame</enum>
-                   </property>
-                   <property name="text">
-                    <string>Size</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="2" column="1">
-                  <widget class="qMRMLCoordinatesWidget" name="roiSizeCoordinateWidget">
-                   <property name="quantity">
-                    <string notr="true">length</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="3" column="0">
-                  <widget class="QLabel" name="sinogramRangeLabel">
-                   <property name="toolTip">
-                    <string>The subset of the sinogram to use for the selected region of interest.</string>
-                   </property>
-                   <property name="text">
-                    <string>Sinogram range</string>
-                   </property>
-                  </widget>
-                 </item>
                  <item row="4" column="0" colspan="2">
                   <widget class="ctkRangeWidget" name="sinogramRangeWidget">
                    <property name="palette">
@@ -560,6 +506,73 @@
                    </property>
                    <property name="decimals">
                     <number>0</number>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="0" column="0">
+                  <widget class="QLabel" name="regionOfInterestLabel">
+                   <property name="text">
+                    <string>Region of interest</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="1">
+                  <widget class="qMRMLCoordinatesWidget" name="roiCenterCoordinateWidget">
+                   <property name="quantity">
+                    <string notr="true">length</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="2" column="1">
+                  <widget class="qMRMLCoordinatesWidget" name="roiSizeCoordinateWidget">
+                   <property name="quantity">
+                    <string notr="true">length</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="3" column="0">
+                  <widget class="QLabel" name="sinogramRangeLabel">
+                   <property name="toolTip">
+                    <string>The subset of the sinogram to use for the selected region of interest.</string>
+                   </property>
+                   <property name="text">
+                    <string>Sinogram range</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="0">
+                  <widget class="QLabel" name="roiCenterLabel">
+                   <property name="toolTip">
+                    <string>Center position of the region of interest.</string>
+                   </property>
+                   <property name="text">
+                    <string>Center</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="2" column="0">
+                  <widget class="QLabel" name="roiSizeLabel">
+                   <property name="toolTip">
+                    <string>The size of the region of interest.</string>
+                   </property>
+                   <property name="frameShape">
+                    <enum>QFrame::NoFrame</enum>
+                   </property>
+                   <property name="text">
+                    <string>Size</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="5" column="0">
+                  <widget class="QPushButton" name="roiSaveButton">
+                   <property name="text">
+                    <string>Save</string>
+                   </property>
+                   <property name="default">
+                    <bool>false</bool>
+                   </property>
+                   <property name="flat">
+                    <bool>false</bool>
                    </property>
                   </widget>
                  </item>
@@ -756,7 +769,7 @@
      <x>0</x>
      <y>0</y>
      <width>741</width>
-     <height>25</height>
+     <height>21</height>
     </rect>
    </property>
   </widget>

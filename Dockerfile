@@ -1,7 +1,7 @@
 # ==============================
 # CUDA 11.3 + cuDNN8 base
 # ==============================
-FROM nvidia/cuda:11.3.1-cudnn8-runtime-ubuntu20.04
+FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu20.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV CONDA_DIR=/opt/conda
@@ -35,11 +35,12 @@ RUN wget -q https://github.com/conda-forge/miniforge/releases/latest/download/Mi
 # Conda core (pin versions)
 # ------------------------------
 RUN mamba install -y \
-      python=3.10 \
-      numpy=1.26.3 \
-      pandas=2.2.2 \
-      matplotlib-base=3.8.0 \
-  && mamba install -y -c wjpalenstijn/label/curved astra-toolbox=2.1.3 \
+      python=3.12 \
+      numpy=2.4.3 \
+      pandas=2.3.3 \
+      matplotlib-base=3.10.9 \
+  #&& mamba install -y -c wjpalenstijn/label/curved astra-toolbox=2.4.1 \
+  && mamba install -y -c astra-toolbox -c nvidia astra-toolbox==2.4.1 \
   && conda clean -a -y
 
 # ------------------------------
@@ -49,19 +50,29 @@ RUN mamba install -y \
 #   - FastAPI stack, SciPy, pynrrd, PyVista
 # ------------------------------
 RUN pip install --no-cache-dir \
-      vtk==9.2.6 \
-      torch==1.12.1+cu113 \
-      torchvision==0.13.1+cu113 \
-      torchaudio==0.12.1 \
-      --extra-index-url https://download.pytorch.org/whl/cu113 \
+      vtk==9.6.1 \
+      #torch==2.1.0 \
+      #torchvision==0.16.0 \
+      #torchaudio==2.1.0 \
+      #--extra-index-url https://download.pytorch.org/whl/cu121 \
       pillow==12.1.1 \
   && pip install --no-cache-dir \
       fastapi uvicorn[standard] starlette requests scipy pynrrd pyvista
 
+RUN pip install --no-cache-dir \
+    torch==2.5.1+cu121 \
+    torchvision==0.20.1+cu121 \
+    torchaudio==2.5.1+cu121 \
+    --index-url https://download.pytorch.org/whl/cu121
+
 # ------------------------------
 # ODL (custom ASTRA curved branch)
 # ------------------------------
-RUN git clone -b astra_cylcone_binding https://github.com/wjp/odl.git /opt/odl \
+#RUN pip install --no-cache-dir odl==1.0.0
+#RUN git clone -b astra_cylcone_binding https://github.com/wjp/odl.git /opt/odl \
+# && pip install -e /opt/odl
+
+RUN git clone -b astra-curved-detector https://github.com/NogginBops/odl.git /opt/odl \
  && pip install -e /opt/odl
 
 # ------------------------------

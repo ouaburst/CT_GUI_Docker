@@ -421,12 +421,12 @@ def build_working_geometry(
     # The original implementation uses flying_focal_spot for both source and detector,
     # with the same measured z-shift array.
     src_shift_func = partial(
-        odl.tomo.flying_focal_spot,
+        odl.applications.tomo.util.source_detector_shifts.flying_focal_spot,
         apart=angle_partition,
         shifts=shifts_xyz,
     )
     det_shift_func = partial(
-        odl.tomo.flying_focal_spot,
+        odl.applications.tomo.util.source_detector_shifts.flying_focal_spot,
         apart=angle_partition,
         shifts=shifts_xyz,
     )
@@ -434,7 +434,7 @@ def build_working_geometry(
     # ------------------------------------------------------------
     # Build the full cone-beam geometry
     # ------------------------------------------------------------
-    geometry = odl.tomo.ConeBeamGeometry(
+    geometry = odl.applications.tomo.geometry.conebeam.ConeBeamGeometry(
         angle_partition,
         detector_partition,
         src_radius=src_radius,
@@ -450,7 +450,7 @@ def build_working_geometry(
     # ------------------------------------------------------------
     # ray_trafo         = A
     # ray_trafo.adjoint = A^T
-    ray_trafo = odl.tomo.RayTransform(reco_space, geometry, impl="astra_cuda")
+    ray_trafo = odl.applications.tomo.operators.RayTransform(reco_space, geometry, impl="astra_cuda")
     ray_trafo_adjoint = ray_trafo.adjoint
 
     # Save useful diagnostics

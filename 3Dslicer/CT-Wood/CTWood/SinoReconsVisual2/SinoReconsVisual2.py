@@ -4,6 +4,7 @@ import logging
 import requests
 import qt
 import slicer
+import slicer.packaging
 import vtk
 import time
 import io
@@ -21,13 +22,6 @@ from pathlib import Path
 from typing import Optional
 from vtkmodules.util.numpy_support import numpy_to_vtk, vtk_to_numpy, numpy_to_vtkIdTypeArray
 from dataclasses import dataclass
-
-import slicer.packaging
-slicer.packaging.pip_ensure("pynrrd", requester="SinoReconsVisual2")
-import nrrd
-
-slicer.packaging.pip_ensure("pathvalidate", requester="SinoReconsVisual2")
-import pathvalidate
 
 from urllib.parse import urlparse
 from slicer.i18n import tr as _
@@ -93,6 +87,9 @@ class SinoReconsVisual2(ScriptedLoadableModule):
         iconPath = os.path.join(get_icons_folder(), "SinoReconsVisual2.png")
         if os.path.exists(iconPath):
             self.parent.icon = qt.QIcon(iconPath)
+
+        slicer.packaging.pip_install("pynrrd", requester="SinoReconsVisual2")
+        slicer.packaging.pip_install("pathvalidate", requester="SinoReconsVisual2")
 
 class Vtk3DSceneObjects:
     sourceModel: slicer.vtkMRMLModelNode
@@ -171,9 +168,11 @@ class QROINameValidator(qt.QValidator):
 
     def __init__(self, parent = None):
         super().__init__(parent)
+        
 
     def validate(self, input: str, pos: int) -> qt.QValidator.State:
         #print(f"validate: {input}")
+        import pathvalidate
         try:
             pathvalidate.validate_filename(f"{input}.json", platform=pathvalidate.Platform.UNIVERSAL)
         except pathvalidate.ValidationError as e:
@@ -260,9 +259,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         # - Julius Häger 2026-03-05
         self.sceneObjects = self.createSceneObjects()
 
-        print(self.ui.roiCenterCoordinateWidget.coordinatesChanged.typeName())
-        print(self.ui.roiCenterCoordinateWidget.coordinatesChanged.parameterTypes())
-        print(self.ui.roiCenterCoordinateWidget.coordinatesChanged.parameterNames())
+        self.ui.showROICheckbox.stateChanged.connect(self.showROIs)
+
         #self.ui.roiCenterCoordinateWidget.coordinatesChanged.connect(self.roiCenterChanged)
         #self.ui.roiSizeCoordinateWidget.coordinatesChanged.connect(self.roiSizeChanged)
         self.ui.roiCenterCoordinateWidget.connect("coordinatesChanged(double, double, double, double)", self.roiCenterChanged)
@@ -276,6 +274,17 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.selectROI(None, None)
         self.ui.roiListWidgetEventFilter = self.ROIListEventFilter(self.ui.roiListWidget)
         self.ui.roiSaveButton.clicked.connect(self.saveROIClicked)
+
+        #interactor = slicer.app.layoutManager().threeDWidget(0).threeDView().interactor()
+        #self.interactor_observer = interactor.AddObserver(vtk.vtkCommand.AnyEvent, self.interactorEvent)
+
+    #def interactorEvent(self, interactor : vtk.vtkRenderWindowInteractor, event):
+    #    if event == 'LeftButtonPressEvent':
+    #        pos = interactor.GetEventPosition()
+    #        renderer = interactor.FindPokedRenderer(pos[0], pos[1])
+    #        picker = interactor.GetPicker()
+    #        if picker.Pick(pos[0], pos[1], 0, renderer) != 0:
+    #            print(picker.GetPickList())
 
     class ROIListEventFilter(qt.QObject):
         roi_list_widget: qt.QListWidget
@@ -344,6 +353,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             layoutSwitchAction.setToolTip("3D and sinogram view")
 
     def cleanup(self):
+        interactor = slicer.app.layoutManager().threeDWidget(0).threeDView().interactor()
+        interactor.RemoveObserver(self.interactor_observer)
+
         self.destroySceneObjects()
         if hasattr(self, 'volume_node') and self.volume_node:
             slicer.mrmlScene.RemoveNode(self.volume_node)
@@ -459,20 +471,39 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             "parameters": params,
         }
 
-        # Simple progress UI (parses "%” from streamed lines if present)
-        progressDialog = qt.QProgressDialog("Running reconstruction...", "Cancel", 0, 100)
-        progressDialog.setWindowTitle("Reconstruction progress")
-        progressDialog.setMinimumDuration(0)
-        progressDialog.setValue(0)
-        canceled = [False]
-        progressDialog.canceled.connect(lambda: canceled.__setitem__(0, True))
-
         try:
+            if slicer.util.confirmOkCancelDisplay("Start reconstruction?", windowTitle="Start ") == False:
+                return
+            
+            # Simple progress UI (parses "%” from streamed lines if present)
+            
+            
             import re, json as _json
-            slicer.util.infoDisplay("Starting remote reconstruction…", "Reconstruction")
 
-            r = self.session.post(run_url, json=payload, stream=True, timeout=None)
+            slicer.packaging.pip_ensure("requests_futures", requester="SinoReconsVisual2", skip_in_testing = False)
+            from requests_futures.sessions import FuturesSession
+            from concurrent.futures import Future
+            session = FuturesSession()
+
+            future : Future = typing.cast(Future, session.post(run_url, json=payload, stream=True, timeout=None))
+            
+            progress = slicer.util.createProgressDialog(value=0, maximum=100, labelText='Running reconstruction...', windowTitle='Running reconstruction...')
+            progress.labelText = "Waiting for reconstruction"
+            progress.value = 99
+            while not future.done() and not progress.wasCanceled:
+                # FIXME: For iterative method we should actually stream the log and get progress reports that way.
+                slicer.app.processEvents()
+             
+            if progress.wasCanceled:
+                progress.close()
+                return
+
+            r = future.result()
             r.raise_for_status()
+            
+            # FIXME: The streaming response might be broken as we are now using a future for this?
+            # I'm unable to test atm due to an exception being raised in odl when doing landweber reconstruction.
+            # - Julius Häger 2026-05-06
 
             pct_re = re.compile(r"\((\d+(?:\.\d+)?)%\)")
             output_url = None
@@ -498,9 +529,10 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                     m = pct_re.search(line)
                     if m:
                         try:
-                            progressDialog.setValue(int(float(m.group(1))))
+                            progress.value = int(float(m.group(1)))
                             slicer.app.processEvents()
-                            if canceled[0]:
+                            #if canceled[0]:
+                            if progress.wasCanceled:
                                 slicer.util.errorDisplay("Reconstruction canceled.", windowTitle="Reconstruction")
                                 return
                         except Exception:
@@ -510,22 +542,23 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                     if "Output:" in line:
                         output_url = line.split("Output:", 1)[1].strip()
 
-            progressDialog.setValue(100)
-
             # Determine filename to load from /images
             if output_url:
                 filename = output_url.rsplit("/", 1)[-1]
             else:
                 filename = f"tree{tree_ID}_disk{disk_ID}_{method}.nrrd"
 
-            stream_nrrd_from_url(filename, base)
+            stream_nrrd_from_url(filename, base, progress)
+            progress.close()
 
         except requests.exceptions.RequestException as e:
+            print(traceback.format_exc())
             slicer.util.errorDisplay(
                 f"Failed to start reconstruction at:\n{run_url}\n\n{e}",
                 windowTitle="Reconstruction Error"
             )
         except Exception as e:
+            print(traceback.format_exc())
             slicer.util.errorDisplay(f"Reconstruction failed:\n{e}", windowTitle="Reconstruction Error")
         
     def onConnectToServerClicked(self):
@@ -687,6 +720,18 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             print(traceback.format_exc())
             slicer.util.errorDisplay(f"Failed to load full dataset:\n{e}")
 
+    def showROIs(self, state : int):
+        if state == qt.Qt.Checked:
+            for row in range(self.ui.roiListWidget.count):
+                item = self.ui.roiListWidget.item(row)
+                itemData: ROIData = item.data(qt.Qt.UserRole)
+                itemData.roi_node.GetMarkupsDisplayNode().Visibility3DOn()
+        else:
+            for row in range(self.ui.roiListWidget.count):
+                item = self.ui.roiListWidget.item(row)
+                itemData: ROIData = item.data(qt.Qt.UserRole)
+                itemData.roi_node.GetMarkupsDisplayNode().Visibility3DOff()
+
     class QListWidgetItemModifiedDelegate(qt.QStyledItemDelegate):
         def __init__(self, parent):
             super().__init__(parent)
@@ -781,7 +826,12 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
         # Update UI with the new roi
         roi_data.roi_node.AddObserver(vtk.vtkCommand.ModifiedEvent, self.roiNodeChanged)
-
+        # FIXME: Some way to detect when the roi node is clicked in the 3D view so we can select it there.
+        # Most of the obvious ways don't work like trying to add observers for left mouse button events.
+        # slicer.app.layoutManager().threeDWidget(0).threeDView().interactor() gives us these events but it's unclear
+        # how to detect what object was clicked...
+        # - Julius Häger 2026-05-06
+    
         roi_data.sinogram_start_index = 0 if sinogram_start is None else sinogram_start
         roi_data.sinogram_end_index = self.sampleData.totalSamples - 1 if sinogram_end is None else sinogram_end
 
@@ -791,6 +841,12 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         roi_data.roi_list_widget.setData(qt.Qt.UserRole, roi_data)
 
         self.setInteractive(roi_data.roi_list_widget, False)
+
+        if self.ui.showROICheckbox.checkState() != qt.Qt.Checked:
+            roi_data.roi_node.GetMarkupsDisplayNode().Visibility3DOff()
+
+        # To be able to use QListWidgetItemModifiedDelegate we need to load
+        slicer.packaging.pip_ensure("pathvalidate", requester="SinoReconsVisual2",skip_in_testing = False)
 
         self.ui.roiListWidget.addItem(roi_data.roi_list_widget)
         self.ui.roiListWidget.setCurrentItem(roi_data.roi_list_widget)
@@ -845,13 +901,18 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             center = roiNode.GetCenter()
             size = roiNode.GetSize()
 
-            self.ui.roiCenterCoordinateWidget.blockSignals(True)
-            self.ui.roiCenterCoordinateWidget.setCoordinates(center.GetX(), center.GetY(), center.GetZ(), 0)
-            self.ui.roiCenterCoordinateWidget.blockSignals(False)
+            try:
+                self.ui.roiCenterCoordinateWidget.blockSignals(True)
+                self.ui.roiCenterCoordinateWidget.setCoordinates(center.GetX(), center.GetY(), center.GetZ(), 0)
+                self.ui.roiCenterCoordinateWidget.blockSignals(False)
 
-            self.ui.roiSizeCoordinateWidget.blockSignals(True)
-            self.ui.roiSizeCoordinateWidget.setCoordinates(size[0], size[1], size[2], 0)
-            self.ui.roiSizeCoordinateWidget.blockSignals(False)
+                self.ui.roiSizeCoordinateWidget.blockSignals(True)
+                self.ui.roiSizeCoordinateWidget.setCoordinates(size[0], size[1], size[2], 0)
+                self.ui.roiSizeCoordinateWidget.blockSignals(False)
+            except:
+                # Current version of slicer doesn't have the setCoordinate PR merged yet.
+                # See: https://github.com/commontk/CTK/pull/1417
+                pass
 
             self.ui.sinogramRangeWidget.blockSignals(True)
             self.ui.sinogramRangeWidget.setValues(itemData.sinogram_start_index, itemData.sinogram_end_index)
@@ -876,13 +937,18 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             roiDisplayNode.SetFillOpacity(0.7)
             roiDisplayNode.SetOutlineOpacity(1.0)
             roiDisplayNode.SetTranslationHandleVisibility(True)
-            
             roiDisplayNode.SetScaleHandleVisibility(True)
+
+            for i in range(roiNode.GetNumberOfControlPoints()):
+                roiNode.SetNthControlPointVisibility(i, True)
         else:
             roiDisplayNode.SetSelectedColor(0.1, 0.1, 0.1)
             roiDisplayNode.SetHandlesInteractive(False)
             roiDisplayNode.SetFillOpacity(0.2)
             roiDisplayNode.SetOutlineOpacity(0.4)
+            
+            for i in range(roiNode.GetNumberOfControlPoints()):
+                roiNode.SetNthControlPointVisibility(i, False)
 
     def saveROIClicked(self):
         if self.ui.roiListWidget.currentRow != -1:
@@ -1034,26 +1100,31 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         # FIXME: Check that anything actually changed?
         modified = False
 
-        # FIXME: Very inefficient to set the coordinates through strings
-        # FIXME: The coordinate string that is returned is rounded to the number of decimals used to display
-        # which means we will never be able to accurately get the values from the control... so the modified check will fail.
-        self.ui.roiCenterCoordinateWidget.blockSignals(True)
-        old_center = [self.ui.roiCenterCoordinateWidget.getCoordinate(0), self.ui.roiCenterCoordinateWidget.getCoordinate(1), self.ui.roiCenterCoordinateWidget.getCoordinate(2)]
-        if old_center != [center.GetX(),center.GetY(),center.GetZ()]:
-            print(f"change center! {old_center} -> {[center.GetX(),center.GetY(),center.GetZ()]}")
-            #self.ui.roiCenterCoordinateWidget.coordinates = new_center_str
-            self.ui.roiCenterCoordinateWidget.setCoordinates(center.GetX(), center.GetY(), center.GetZ(), 0)
-            modified = True
-        self.ui.roiCenterCoordinateWidget.blockSignals(False)
+        try:
+            # FIXME: Very inefficient to set the coordinates through strings
+            # FIXME: The coordinate string that is returned is rounded to the number of decimals used to display
+            # which means we will never be able to accurately get the values from the control... so the modified check will fail.
+            self.ui.roiCenterCoordinateWidget.blockSignals(True)
+            old_center = [self.ui.roiCenterCoordinateWidget.getCoordinate(0), self.ui.roiCenterCoordinateWidget.getCoordinate(1), self.ui.roiCenterCoordinateWidget.getCoordinate(2)]
+            if old_center != [center.GetX(),center.GetY(),center.GetZ()]:
+                print(f"change center! {old_center} -> {[center.GetX(),center.GetY(),center.GetZ()]}")
+                #self.ui.roiCenterCoordinateWidget.coordinates = new_center_str
+                self.ui.roiCenterCoordinateWidget.setCoordinates(center.GetX(), center.GetY(), center.GetZ(), 0)
+                modified = True
+            self.ui.roiCenterCoordinateWidget.blockSignals(False)
 
 
-        self.ui.roiSizeCoordinateWidget.blockSignals(True)
-        old_size = [self.ui.roiSizeCoordinateWidget.getCoordinate(0), self.ui.roiSizeCoordinateWidget.getCoordinate(1), self.ui.roiSizeCoordinateWidget.getCoordinate(2)]
-        if old_size != [size[0],size[1],size[2]]:
-            print(f"change size! {old_size} -> {[size[0],size[1],size[2]]}")
-            self.ui.roiSizeCoordinateWidget.setCoordinates(size[0],size[1],size[2], 0)
-            modified = True
-        self.ui.roiSizeCoordinateWidget.blockSignals(False)
+            self.ui.roiSizeCoordinateWidget.blockSignals(True)
+            old_size = [self.ui.roiSizeCoordinateWidget.getCoordinate(0), self.ui.roiSizeCoordinateWidget.getCoordinate(1), self.ui.roiSizeCoordinateWidget.getCoordinate(2)]
+            if old_size != [size[0],size[1],size[2]]:
+                print(f"change size! {old_size} -> {[size[0],size[1],size[2]]}")
+                self.ui.roiSizeCoordinateWidget.setCoordinates(size[0],size[1],size[2], 0)
+                modified = True
+            self.ui.roiSizeCoordinateWidget.blockSignals(False)
+        except:
+            # Current version of slicer doesn't have the setCoordinate PR merged yet.
+            # See: https://github.com/commontk/CTK/pull/1417
+            pass
 
         roi = self.getROIDataFromNode(roiNode)
         if roi is not None and modified:
@@ -1378,7 +1449,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             return
         
         print(f"show on sensor: {state}")
-        if state == 2:
+        if state == qt.Qt.Checked:
             self.sceneObjects.sensorModelDisplay.SetTextureImageDataConnection(self.sceneObjects.sensorModelImageProducer.GetOutputPort())
             self.sceneObjects.sensorModelDisplay.SetOpacity(1.0)
             self.sceneObjects.sensorModelDisplay.SetInterpolation(slicer.vtkMRMLDisplayNode.FlatInterpolation)
@@ -1476,6 +1547,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
     def loadFullDetailSlice(self):
         try:
+            slicer.packaging.pip_ensure("pynrrd", requester="SinoReconsVisual2")
+            import nrrd
+
             index = self.currentIndex
             base = self._currentBaseUrl()
 
@@ -1558,7 +1632,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 # -----------------------------
 # HTTP helpers (use saved base URL)
 # -----------------------------
-def stream_nrrd_from_url(filename, base_url: Optional[str] = None):
+def stream_nrrd_from_url(filename, base_url: Optional[str] = None, progress_dialog: qt.QProgressDialog = None):
 
     base = normalize_base_url(base_url or get_saved_base_url())
     url = f"{base}/images/{filename}"
@@ -1569,16 +1643,16 @@ def stream_nrrd_from_url(filename, base_url: Optional[str] = None):
         response.raise_for_status()
 
         total_size = int(response.headers.get('content-length', 0))
-        max_progress = min(total_size, 2**31 - 1)
-        scale_factor = total_size / max_progress if total_size > max_progress else 1
 
-        progress_dialog = qt.QProgressDialog("Loading file...", "Cancel", 0, max_progress)
+        create_progress_dialog = False
+        if progress_dialog == None:
+            create_progress_dialog = True
+            progress_dialog = slicer.util.createProgressDialog(value=0, maximum=total_size)
+        progress_dialog.setLabelText("Loading reconstruction...")
         progress_dialog.setWindowTitle("Load Progress")
+        progress_dialog.setMaximum(total_size)
         progress_dialog.setMinimumDuration(0)
-        progress_dialog.setValue(0)
-
-        canceled = [False]
-        progress_dialog.canceled.connect(lambda: canceled.__setitem__(0, True))
+        progress_dialog.value = 0
 
         with requests.get(url, stream=True) as r, open(temp_file_path, "wb") as temp_file:
             r.raise_for_status()
@@ -1587,9 +1661,9 @@ def stream_nrrd_from_url(filename, base_url: Optional[str] = None):
                 if chunk:
                     temp_file.write(chunk)
                     downloaded_size += len(chunk)
-                    progress_dialog.setValue(int(downloaded_size / scale_factor))
+                    progress_dialog.value = downloaded_size
                     slicer.app.processEvents()
-                    if canceled[0]:
+                    if progress_dialog.wasCanceled:
                         slicer.util.errorDisplay("Download was canceled by the user.", windowTitle="Download Canceled")
                         return
 
@@ -1600,6 +1674,9 @@ def stream_nrrd_from_url(filename, base_url: Optional[str] = None):
             slicer.app.layoutManager().resetSliceViews()
         else:
             print("Failed to load the NRRD volume.")
+
+        if create_progress_dialog:
+            progress_dialog.close()
 
     except requests.exceptions.RequestException as e:
         slicer.util.errorDisplay(f"Failed to download the NRRD file from:\n{url}\n\nError: {e}", windowTitle="Download Failed")

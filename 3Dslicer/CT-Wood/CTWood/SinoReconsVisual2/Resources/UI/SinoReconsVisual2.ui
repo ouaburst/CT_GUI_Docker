@@ -31,8 +31,8 @@
         <rect>
          <x>0</x>
          <y>0</y>
-         <width>719</width>
-         <height>1186</height>
+         <width>694</width>
+         <height>1370</height>
         </rect>
        </property>
        <property name="sizePolicy">
@@ -330,6 +330,12 @@
           <property name="checkable">
            <bool>true</bool>
           </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+          <property name="collapsed">
+           <bool>false</bool>
+          </property>
           <property name="collapsedHeight">
            <number>1</number>
           </property>
@@ -457,6 +463,19 @@
                </widget>
               </item>
               <item>
+               <widget class="ctkCheckBox" name="showROICheckbox">
+                <property name="text">
+                 <string>Show regions of interest</string>
+                </property>
+                <property name="checked">
+                 <bool>true</bool>
+                </property>
+                <property name="tristate">
+                 <bool>false</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
                <widget class="QWidget" name="roiEditWidget" native="true">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
@@ -518,6 +537,12 @@
                  </item>
                  <item row="1" column="1">
                   <widget class="qMRMLCoordinatesWidget" name="roiCenterCoordinateWidget">
+                   <property name="sizePolicy">
+                    <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                     <horstretch>0</horstretch>
+                     <verstretch>0</verstretch>
+                    </sizepolicy>
+                   </property>
                    <property name="quantity">
                     <string notr="true">length</string>
                    </property>
@@ -769,13 +794,18 @@
      <x>0</x>
      <y>0</y>
      <width>741</width>
-     <height>21</height>
+     <height>25</height>
     </rect>
    </property>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
  </widget>
  <customwidgets>
+  <customwidget>
+   <class>ctkCheckBox</class>
+   <extends>QCheckBox</extends>
+   <header>ctkCheckBox.h</header>
+  </customwidget>
   <customwidget>
    <class>ctkCollapsibleGroupBox</class>
    <extends>QGroupBox</extends>

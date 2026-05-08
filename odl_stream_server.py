@@ -733,6 +733,7 @@ def run_reconstruction(req: ReconRequest, request: Request):
     # Build command for reconstruction.py
     cmd = [
         "python", "-u", "reconstruction.py",
+        "--specie", str(req.specie),
         "--tree_ID", str(req.tree_ID),
         "--disk_ID", str(req.disk_ID),
         "--reconstruction_method", method,

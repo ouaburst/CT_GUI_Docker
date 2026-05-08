@@ -1,16 +1,14 @@
-from typing import Tuple, Dict
 import odl
 from odl.applications.tomo.geometry.conebeam import ConeBeamGeometry
 import numpy as np
-from functools import partial
 from scipy.interpolate import interp1d
 
 from odl.contrib.torch import OperatorModule
 
 def parser_ConeBeamGeometry(
-        angles:np.ndarray,
-        axial_positions:np.ndarray,
-        metadata:Dict,
+        angles: np.ndarray,
+        axial_positions: np.ndarray,
+        metadata: dict,
         torch = False
     ):
     DET_X_MIN = metadata['DET_X_MIN']
@@ -23,10 +21,6 @@ def parser_ConeBeamGeometry(
             [DET_X_MIN, DET_Z_MIN],
             [DET_X_MAX, DET_Z_MAX],
             (DET_NPX_X, DET_NPX_Z))
-    
-    axial_positions -= axial_positions[0]
-    #axial_positions += 230*0.3
-    axial_positions += metadata["DET_NPX_Z"] * metadata["DET_PIX_SIZE"]
 
     REC_MIN_X, REC_MIN_Y, REC_MIN_Z = metadata['REC_MIN_X'], metadata['REC_MIN_Y'], axial_positions[0]
     REC_MAX_X, REC_MAX_Y, REC_MAX_Z = metadata['REC_MAX_X'], metadata['REC_MAX_Y'], axial_positions[-1]
@@ -38,9 +32,7 @@ def parser_ConeBeamGeometry(
         shape= [REC_NPX_X, REC_NPX_Y, REC_NPX_Z],
         dtype='float32')
 
-    SRC_RADIUS = metadata['SRC_RADIUS']
-    DET_RADIUS = metadata['DET_RADIUS'] 
-    DET_CURVATURE_RADIUS = metadata['DET_CURVATURE_RADIUS']
+    print(reco_space)
 
     angles_increasing = np.unwrap(angles)
     angle_partition = odl.nonuniform_partition(angles_increasing)

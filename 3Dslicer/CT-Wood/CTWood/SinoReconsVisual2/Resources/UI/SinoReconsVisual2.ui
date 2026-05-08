@@ -30,9 +30,9 @@
        <property name="geometry">
         <rect>
          <x>0</x>
-         <y>0</y>
+         <y>-75</y>
          <width>694</width>
-         <height>1370</height>
+         <height>1429</height>
         </rect>
        </property>
        <property name="sizePolicy">
@@ -484,7 +484,34 @@
                  </sizepolicy>
                 </property>
                 <layout class="QGridLayout" name="gridLayout_3">
-                 <item row="4" column="0" colspan="2">
+                 <item row="4" column="0">
+                  <widget class="QLabel" name="sinogramRangeLabel">
+                   <property name="toolTip">
+                    <string>The subset of the sinogram to use for the selected region of interest.</string>
+                   </property>
+                   <property name="text">
+                    <string>Sinogram range</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="3" column="0">
+                  <widget class="QLabel" name="roiResolutionLabel">
+                   <property name="text">
+                    <string>Resolution</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="0">
+                  <widget class="QLabel" name="roiCenterLabel">
+                   <property name="toolTip">
+                    <string>Center position of the region of interest.</string>
+                   </property>
+                   <property name="text">
+                    <string>Center</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="5" column="0" colspan="3">
                   <widget class="ctkRangeWidget" name="sinogramRangeWidget">
                    <property name="palette">
                     <palette>
@@ -528,14 +555,20 @@
                    </property>
                   </widget>
                  </item>
-                 <item row="0" column="0">
-                  <widget class="QLabel" name="regionOfInterestLabel">
+                 <item row="6" column="0">
+                  <widget class="QPushButton" name="roiSaveButton">
                    <property name="text">
-                    <string>Region of interest</string>
+                    <string>Save</string>
+                   </property>
+                   <property name="default">
+                    <bool>false</bool>
+                   </property>
+                   <property name="flat">
+                    <bool>false</bool>
                    </property>
                   </widget>
                  </item>
-                 <item row="1" column="1">
+                 <item row="1" column="2">
                   <widget class="qMRMLCoordinatesWidget" name="roiCenterCoordinateWidget">
                    <property name="sizePolicy">
                     <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
@@ -548,30 +581,10 @@
                    </property>
                   </widget>
                  </item>
-                 <item row="2" column="1">
+                 <item row="2" column="2">
                   <widget class="qMRMLCoordinatesWidget" name="roiSizeCoordinateWidget">
                    <property name="quantity">
                     <string notr="true">length</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="3" column="0">
-                  <widget class="QLabel" name="sinogramRangeLabel">
-                   <property name="toolTip">
-                    <string>The subset of the sinogram to use for the selected region of interest.</string>
-                   </property>
-                   <property name="text">
-                    <string>Sinogram range</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="1" column="0">
-                  <widget class="QLabel" name="roiCenterLabel">
-                   <property name="toolTip">
-                    <string>Center position of the region of interest.</string>
-                   </property>
-                   <property name="text">
-                    <string>Center</string>
                    </property>
                   </widget>
                  </item>
@@ -588,16 +601,20 @@
                    </property>
                   </widget>
                  </item>
-                 <item row="5" column="0">
-                  <widget class="QPushButton" name="roiSaveButton">
+                 <item row="0" column="0">
+                  <widget class="QLabel" name="regionOfInterestLabel">
                    <property name="text">
-                    <string>Save</string>
+                    <string>Region of interest</string>
                    </property>
-                   <property name="default">
-                    <bool>false</bool>
+                  </widget>
+                 </item>
+                 <item row="3" column="2">
+                  <widget class="qMRMLCoordinatesWidget" name="roiResolutionCoordinateWidget">
+                   <property name="decimals">
+                    <number>0</number>
                    </property>
-                   <property name="flat">
-                    <bool>false</bool>
+                   <property name="quantity">
+                    <string notr="true"/>
                    </property>
                   </widget>
                  </item>
@@ -646,17 +663,17 @@
               <property name="bottomMargin">
                <number>0</number>
               </property>
-              <item row="0" column="0">
+              <item row="1" column="0">
                <widget class="QLabel" name="reconstructionMethodLabel">
                 <property name="text">
                  <string>Reconstruction method</string>
                 </property>
                </widget>
               </item>
-              <item row="0" column="1">
+              <item row="1" column="1">
                <widget class="QComboBox" name="reconstructionMethodComboBox"/>
               </item>
-              <item row="1" column="0" colspan="2">
+              <item row="2" column="0" colspan="2">
                <widget class="QGroupBox" name="fbpParameterGroupBox">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
@@ -698,7 +715,7 @@
                 </layout>
                </widget>
               </item>
-              <item row="2" column="0" colspan="2">
+              <item row="3" column="0" colspan="2">
                <widget class="QGroupBox" name="landweberParameterGroupBox">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
@@ -759,20 +776,27 @@
                 </layout>
                </widget>
               </item>
-              <item row="3" column="0" colspan="2">
+              <item row="4" column="0" colspan="2">
                <widget class="QPushButton" name="runReconstructionButton">
                 <property name="text">
                  <string>Run reconstruction</string>
                 </property>
                </widget>
               </item>
-              <item row="4" column="0" colspan="2">
+              <item row="5" column="0" colspan="2">
                <widget class="QPushButton" name="loadReconstructionDataButton">
                 <property name="enabled">
                  <bool>false</bool>
                 </property>
                 <property name="text">
                  <string>Load reconstruction data</string>
+                </property>
+               </widget>
+              </item>
+              <item row="0" column="0">
+               <widget class="QCheckBox" name="useSelectedROICheckbox">
+                <property name="text">
+                 <string>Use selected region of interest</string>
                 </property>
                </widget>
               </item>

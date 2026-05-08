@@ -1,4 +1,3 @@
-from typing import Dict
 from pathlib import Path
 from functools import partial
 import math 
@@ -23,7 +22,7 @@ DETECTOR_WIDTH = 230 * 0.3
 def parse_ODL_geometry(
         angles :np.ndarray, 
         axial_positions:np.ndarray, 
-        metadata:Dict, 
+        metadata:dict, 
         torch:bool
         ):
     if metadata['GEOMETRY_NAME'] == 'ConeBeamGeometry':
@@ -130,7 +129,7 @@ class MITO(Dataset):
     # - For batching: ODL operators are not batched by default; apply per-sample
     #   or implement external batching logic.
     #########################################################
-    def __getitem__(self, index) -> Dict:
+    def __getitem__(self, index) -> dict:
         slice_row = self.dataframe.iloc[index]
         specie  = slice_row['specie']
         tree_ID = slice_row['tree_ID']
@@ -140,9 +139,9 @@ class MITO(Dataset):
         sample_path = self.data_folder_path.joinpath(f'{specie}_{tree_ID}_{disk_ID}')
         
         # Load geometry information
-        angles = np.load(sample_path.joinpath('angles.npy'))
+        angles = np.load(sample_path.joinpath('angles.npy'), mmap_mode="r")
         metadata = dict(json.load(open(sample_path.joinpath('metadata.json'))))
-        axial_positions = np.load(sample_path.joinpath('axial_positions.npy'))
+        axial_positions = np.load(sample_path.joinpath('axial_positions.npy'), mmap_mode="r")
        
         # Create operators
         A, A_T = self.make_operators(angles, axial_positions, metadata)
@@ -158,7 +157,7 @@ class MITO(Dataset):
         # to ODL you typically wrap this numpy array into the data space:
         #   y_elm = A.range.element(np_array) 
         if self.load_sinogram:
-            data_dict['sinogram'] = np.load(sample_path.joinpath('sinogram.npy'))
+            data_dict['sinogram'] = np.load(sample_path.joinpath('sinogram.npy'), mmap_mode="r")
 
         # Example (commented) usage sketch outside this method:
         # ---------------------------------------------------
@@ -207,7 +206,7 @@ class MITO(Dataset):
         self,
         angles:np.ndarray,
         axial_positions:np.ndarray,
-        metadata:Dict,
+        metadata:dict,
         local_metadata = None,
         torch = False
         ):

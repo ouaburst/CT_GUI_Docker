@@ -1,0 +1,9 @@
+[Icon Theme]
+Name=dark
+Comment=Dark Theme
+
+Directories=scalable,
+
+[scalable]
+Size=48
+Type=Scalable

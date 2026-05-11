@@ -207,6 +207,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
     def __init__(self, parent=None):
         ScriptedLoadableModuleWidget.__init__(self, parent)
         VTKObservationMixin.__init__(self)
+        qt.QResource.registerResource(self.resourcePath("sinoReconsVisual.rcc"))
         self.sampleData = SampleData()
 
     # -----------------------------
@@ -216,6 +217,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         ScriptedLoadableModuleWidget.setup(self)
 
         self.session = requests.Session()
+        
+        # FIXME: I'm unable to figure out how to make resources from qrc files work...
+        qt.QIcon.setThemeName("light")
 
         # Load and attach UI
         uiWidget = slicer.util.loadUI(self.resourcePath("UI/SinoReconsVisual2.ui"))
@@ -290,6 +294,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.selectROI(None, None)
         self.ui.roiListWidgetEventFilter = self.ROIListEventFilter(self.ui.roiListWidget)
         self.ui.roiSaveButton.clicked.connect(self.saveROIClicked)
+
+        self.ui.roiListWidget.setContextMenuPolicy(qt.Qt.CustomContextMenu)
+        self.ui.roiListWidget.customContextMenuRequested.connect(self.showROIItemContextMenu)
 
         threeDView = slicer.app.layoutManager().threeDWidget(0).threeDView()
         viewNode = threeDView.mrmlViewNode()
@@ -547,10 +554,11 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 params["REC_MAX_Z"] = float(max[2])
                 params['SINOGRAM_MIN'] = itemData.sinogram_start_index
                 params['SINOGRAM_MAX'] = itemData.sinogram_end_index
-                # FIXME: Resolution!
                 params["REC_NPX_X"] = itemData.resolution[0]
                 params["REC_NPX_Y"] = itemData.resolution[1]
                 params["REC_NPX_Z"] = itemData.resolution[2]
+
+        params["use_cache"] = self.ui.useCacheCheckbox.checkState() == qt.Qt.Checked
 
         print(params)
 
@@ -815,6 +823,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             # So that the units get set correctly
             self.ui.roiCenterCoordinateWidget.setMRMLScene(slicer.mrmlScene)
             self.ui.roiSizeCoordinateWidget.setMRMLScene(slicer.mrmlScene)
+            self.ui.roiResolutionCoordinateWidget.setMRMLScene(slicer.mrmlScene)
 
             sample_roi_dir = Path(os.path.expanduser(f"~/Documents/SinoRecons/{self.sampleData.specie}_{self.sampleData.tree_ID}_{self.sampleData.disk_ID}/"))
             self.clearROIs()
@@ -1003,15 +1012,27 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
     def removeROIClicked(self):
         if self.ui.roiListWidget.currentRow != -1:
-            item = self.ui.roiListWidget.takeItem(self.ui.roiListWidget.currentRow)
-            itemData: ROIData = item.data(qt.Qt.UserRole)
-            slicer.mrmlScene.RemoveNode(itemData.roi_node)
+            item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
+            self.removeROI(item)
+            
+    def removeROI(self, item: qt.QListWidgetItem):
+        if slicer.util.confirmOkCancelDisplay(f"Delete '{item.data(qt.Qt.UserRole).name}'?", windowTitle="Delete ROI?") == False:
+            return
 
-            if itemData.original_path != None:
-                slicer.packaging.pip_ensure("Send2Trash", requester="SinoReconsVisual2")
+        self.ui.roiListWidget.takeItem(self.ui.roiListWidget.row(item))
+        itemData: ROIData = item.data(qt.Qt.UserRole)
+        slicer.mrmlScene.RemoveNode(itemData.roi_node)
+
+        if itemData.original_path != None:
+            slicer.packaging.pip_ensure("Send2Trash", requester="SinoReconsVisual2")
+            try:
                 import send2trash
                 send2trash.send2trash(itemData.original_path)
-        
+            except:
+                # If we can't send to trash, delete the item.
+                # FIXME: Confirmation dialog??
+                os.remove(itemData.original_path)
+
     def selectROI(self, current: qt.QListWidgetItem, previous: qt.QListWidgetItem):
         if current == None:
             self.ui.roiEditWidget.setEnabled(False)
@@ -1091,12 +1112,15 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             for i in range(roiNode.GetNumberOfControlPoints()):
                 roiNode.SetNthControlPointVisibility(i, False)
 
+    def _getSampleDirectory(self) -> Path:
+        return Path(os.path.expanduser(f"~/Documents/SinoRecons/{self.sampleData.specie}_{self.sampleData.tree_ID}_{self.sampleData.disk_ID}"))
+    
     def saveROIClicked(self):
         if self.ui.roiListWidget.currentRow != -1:
             item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
             itemData: ROIData = item.data(qt.Qt.UserRole)
             
-            sample_dir = Path(os.path.expanduser(f"~/Documents/SinoRecons/{self.sampleData.specie}_{self.sampleData.tree_ID}_{self.sampleData.disk_ID}"))
+            sample_dir = self._getSampleDirectory()
             self.saveROIToFile(itemData, sample_dir)
         else:
             print("[ERROR] There is no ROI selected, can't save.")
@@ -1345,6 +1369,37 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             roi.roi_list_widget.setText(roi.name)
 
         self.ui.roiSaveButton.setEnabled(roi._modified)
+
+    def showROIItemContextMenu(self, pos: qt.QPoint) -> None:
+        item = self.ui.roiListWidget.itemAt(pos)
+        if item == None:
+            return
+        itemData: ROIData = item.data(qt.Qt.UserRole)
+
+        menu: qt.QMenu = qt.QMenu()
+
+        rename = qt.QAction("Rename...", menu)
+        rename.triggered.connect(lambda _: self.ui.roiListWidget.editItem(item))
+        menu.addAction(rename)
+
+        save = qt.QAction("Save", menu)
+        save.triggered.connect(lambda _: self.saveROIToFile(itemData, self._getSampleDirectory()))
+        menu.addAction(save)
+
+        
+        menu.addSeparator()
+
+        # FIXME: Add set appropriate resolution action
+        # FIXME: Add reset changes action.
+        # FIXME: Add reset to default action.
+
+        menu.addSeparator()
+
+        delete = qt.QAction("Delete", menu)
+        delete.triggered.connect(lambda _: self.removeROI(item))
+        menu.addAction(delete)
+
+        menu.exec(self.ui.roiListWidget.mapToGlobal(pos))
 
     # -----------------------------
     # Rendering helpers

@@ -1,10 +1,24 @@
-<RCC>
-    <qresource prefix="/Icons">
-        <file alias="SlicerAddLT.svg">Icons/SlicerAddLightTheme.svg</file>
-        <file alias="SlicerAddDT.svg">Icons/SlicerAddDarkTheme.svg</file>
-        <file alias="SlicerMinusLT.svg">Icons/SlicerMinusLightTheme.svg</file>
-        <file alias="SlicerMinusDT.svg">Icons/SlicerMinusDarkTheme.svg</file>
-        <file alias="SlicerRemoveLT.svg">Icons/SlicerRemoveLightTheme.svg</file>
-        <file alias="SlicerRemoveDT.svg">Icons/SlicerRemoveDarkTheme.svg</file>
+<!DOCTYPE RCC><RCC version="1.0">
+    <qresource prefix="/icons">
+        <file>Icons/SlicerAddLightTheme.svg</file>
+        <file>Icons/SlicerAddDarkTheme.svg</file>
+        <file>Icons/SlicerMinusLightTheme.svg</file>
+        <file>Icons/SlicerMinusDarkTheme.svg</file>
+        <file>Icons/SlicerRemoveLightTheme.svg</file>
+        <file>Icons/SlicerRemoveDarkTheme.svg</file>
+    </qresource>
+
+    <qresource prefix="/icons/dark">
+        <file alias="index.theme">Icons/dark/index.theme</file>
+        <file alias="scalable/SlicerAdd.svg">Icons/dark/scalable/SlicerAdd.svg</file>
+        <file alias="scalable/SlicerMinus.svg">Icons/dark/scalable/SlicerMinus.svg</file>
+        <file alias="scalable/SlicerRemove.svg">Icons/dark/scalable/SlicerRemove.svg</file>
+    </qresource>
+
+    <qresource prefix="/icons/light">
+        <file alias="index.theme">Icons/light/index.theme</file>
+        <file alias="scalable/SlicerAdd.svg">Icons/light/scalable/SlicerAdd.svg</file>
+        <file alias="scalable/SlicerMinus.svg">Icons/light/scalable/SlicerMinus.svg</file>
+        <file alias="scalable/SlicerRemove.svg">Icons/light/scalable/SlicerRemove.svg</file>
     </qresource>
 </RCC>

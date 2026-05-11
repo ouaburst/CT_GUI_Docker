@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------
-set(MODULE_NAME LoadCTData)
+set(MODULE_NAME SinoReconsVisual2)
 
 #-----------------------------------------------------------------------------
 set(MODULE_PYTHON_SCRIPTS
@@ -8,13 +8,22 @@ set(MODULE_PYTHON_SCRIPTS
 
 set(MODULE_PYTHON_RESOURCES
   Resources/Icons/${MODULE_NAME}.png
-  Resources/Icons/SlicerAdd.svg
-  Resources/Icons/SlicerMinus.svg
-  Resources/Icons/SlicerRemove.svg
+  # FIXME: This file has been manually generated using rcc.exe from a local Qt installation...
+  # > rcc.exe -binary .\3Dslicer\CT-Wood\CTWood\SinoReconsVisual2\Resources\sinoReconsVisual.qrc -o .\3Dslicer\CT-Wood\CTWood\SinoReconsVisual2\Resources\sinoReconsVisual.rcc
+  # Ideally it would be generated as part of this CMake build setup but I'm unable to get it working properly...
+  # See slicerFunctionAddPythonQtResources below.
+  # - Julius Häger 2026-05-11
+  Resources/sinoReconsVisual.rcc
   Resources/UI/${MODULE_NAME}.ui
   )
 
 #-----------------------------------------------------------------------------
+# FIXME: For some reason this doesn't work properly, and I do not understand why.
+# - Julius Häger 2026-05-11
+slicerFunctionAddPythonQtResources(
+  Resources/sinoReconsVisual.qrc
+  )
+
 slicerMacroBuildScriptedModule(
   NAME ${MODULE_NAME}
   SCRIPTS ${MODULE_PYTHON_SCRIPTS}

@@ -109,7 +109,7 @@ def main():
         _progress("[FBP] Filtering/backprojecting …")
         reconstruction = fbp_op(sample['sinogram'])
         _progress("[FBP] Done.")
-
+        
     elif args.reconstruction_method == 'landweber':
         # Retrieve iteration controls (with defaults)
         niter = int(params.get('niter', 50))
@@ -233,7 +233,7 @@ def make_operators(
 
     geometry = parse_ODL_geometry(angles, axial_positions, metadata)
     reco_space = create_reconstruction_space(reco_metadata)
-    forward_operator, adjoint_operator = create_ray_transforms(geometry, reco_space)
+    forward_operator, adjoint_operator = create_ray_transforms(geometry, reco_space, reco_metadata.get("use_cache", False))
 
     if torch:
         forward_operator = OperatorModule(forward_operator)
@@ -255,8 +255,8 @@ def parse_ODL_geometry(
     else:
         raise NotImplementedError
 
-def create_ray_transforms(geometry: Geometry, reco_space: odl.DiscretizedSpace) -> tuple[Operator, Operator]:
-        ray_transform = RayTransform(reco_space, geometry, impl='astra_cuda')
+def create_ray_transforms(geometry: Geometry, reco_space: odl.DiscretizedSpace, use_cache: bool) -> tuple[Operator, Operator]:
+        ray_transform = RayTransform(reco_space, geometry, impl='astra_cuda', use_cache = use_cache)
         ray_transform_adjoint = ray_transform.adjoint
 
         return ray_transform, ray_transform_adjoint

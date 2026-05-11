@@ -19,7 +19,7 @@ include(${Slicer_USE_FILE})
 
 #-----------------------------------------------------------------------------
 # Extension modules
-add_subdirectory(LoadCTData)
+add_subdirectory(SinoReconsVisual2)
 ## NEXT_MODULE
 
 #-----------------------------------------------------------------------------

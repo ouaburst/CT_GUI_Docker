@@ -30,9 +30,9 @@
        <property name="geometry">
         <rect>
          <x>0</x>
-         <y>-75</y>
+         <y>0</y>
          <width>694</width>
-         <height>1429</height>
+         <height>1457</height>
         </rect>
        </property>
        <property name="sizePolicy">
@@ -134,6 +134,12 @@
                <widget class="QTableWidget" name="metadataTableWidget">
                 <property name="enabled">
                  <bool>true</bool>
+                </property>
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
                 </property>
                 <property name="frameShape">
                  <enum>QFrame::Panel</enum>
@@ -429,7 +435,7 @@
                       </property>
                       <property name="icon">
                        <iconset resource="../sinoReconsVisual.qrc">
-                        <normaloff>:/Icons/SlicerAddLT.svg</normaloff>:/Icons/SlicerAddLT.svg</iconset>
+                        <normaloff>:/icons/light/scalable/SlicerAdd.svg</normaloff>:/icons/light/scalable/SlicerAdd.svg</iconset>
                       </property>
                       <property name="iconAlignment">
                        <set>Qt::AlignCenter</set>
@@ -449,7 +455,7 @@
                       </property>
                       <property name="icon">
                        <iconset resource="../sinoReconsVisual.qrc">
-                        <normaloff>:/Icons/SlicerRemoveLT.svg</normaloff>:/Icons/SlicerRemoveLT.svg</iconset>
+                        <normaloff>:/icons/light/scalable/SlicerMinus.svg</normaloff>:/icons/light/scalable/SlicerMinus.svg</iconset>
                       </property>
                       <property name="iconAlignment">
                        <set>Qt::AlignCenter</set>
@@ -553,6 +559,12 @@
                    <property name="decimals">
                     <number>0</number>
                    </property>
+                   <property name="maximum">
+                    <double>10000.000000000000000</double>
+                   </property>
+                   <property name="maximumValue">
+                    <double>10000.000000000000000</double>
+                   </property>
                   </widget>
                  </item>
                  <item row="6" column="0">
@@ -576,6 +588,12 @@
                      <verstretch>0</verstretch>
                     </sizepolicy>
                    </property>
+                   <property name="decimals">
+                    <number>4</number>
+                   </property>
+                   <property name="coordinates" stdset="0">
+                    <string>100,100,100</string>
+                   </property>
                    <property name="quantity">
                     <string notr="true">length</string>
                    </property>
@@ -583,6 +601,12 @@
                  </item>
                  <item row="2" column="2">
                   <widget class="qMRMLCoordinatesWidget" name="roiSizeCoordinateWidget">
+                   <property name="decimals">
+                    <number>4</number>
+                   </property>
+                   <property name="coordinates" stdset="0">
+                    <string>100,100,100</string>
+                   </property>
                    <property name="quantity">
                     <string notr="true">length</string>
                    </property>
@@ -612,6 +636,9 @@
                   <widget class="qMRMLCoordinatesWidget" name="roiResolutionCoordinateWidget">
                    <property name="decimals">
                     <number>0</number>
+                   </property>
+                   <property name="coordinates" stdset="0">
+                    <string>100,100,100</string>
                    </property>
                    <property name="quantity">
                     <string notr="true"/>
@@ -776,14 +803,14 @@
                 </layout>
                </widget>
               </item>
-              <item row="4" column="0" colspan="2">
+              <item row="5" column="0" colspan="2">
                <widget class="QPushButton" name="runReconstructionButton">
                 <property name="text">
                  <string>Run reconstruction</string>
                 </property>
                </widget>
               </item>
-              <item row="5" column="0" colspan="2">
+              <item row="6" column="0" colspan="2">
                <widget class="QPushButton" name="loadReconstructionDataButton">
                 <property name="enabled">
                  <bool>false</bool>
@@ -797,6 +824,19 @@
                <widget class="QCheckBox" name="useSelectedROICheckbox">
                 <property name="text">
                  <string>Use selected region of interest</string>
+                </property>
+               </widget>
+              </item>
+              <item row="4" column="0">
+               <widget class="QCheckBox" name="useCacheCheckbox">
+                <property name="toolTip">
+                 <string/>
+                </property>
+                <property name="text">
+                 <string>Use Cache</string>
+                </property>
+                <property name="checked">
+                 <bool>true</bool>
                 </property>
                </widget>
               </item>

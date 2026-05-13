@@ -423,7 +423,7 @@ class SampleSelect(BaseModel):
 @app.post("/select_sample")
 def select_sample(sel: SampleSelect):
     """Switch active sample, reload arrays, and regenerate outputs."""
-    global cached_geometry, sample_name, config, sinogramMin, sinogramMax, metadata, sinogram
+    global cached_geometry, sample_name, config, sinogram, sinogramMin, sinogramMax, metadata, sinogram
 
     try:
         sample_dir = _resolve_sample_dir(config, sel.specie, sel.tree_ID, sel.disk_ID)
@@ -530,7 +530,7 @@ def select_sample(sel: SampleSelect):
         else:
             print(f"[DEBUG] Sample '{new_sample_name}' was already selected, doing nothing.")
 
-        return {"status": "ok", "sample_dir": str(sample_dir), "frames": N, "sinogram_min": float(sinogramMin), "sinogram_max": float(sinogramMax), "metadata": metadata}
+        return {"status": "ok", "sample_dir": str(sample_dir), "frames": N, "sinogram_shape": sinogram.shape, "sinogram_min": float(sinogramMin), "sinogram_max": float(sinogramMax), "metadata": metadata}
     except Exception as e:
         print(f"[ERROR] {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})

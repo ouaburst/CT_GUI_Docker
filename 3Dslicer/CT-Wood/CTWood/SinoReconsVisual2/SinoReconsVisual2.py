@@ -29,6 +29,8 @@ from slicer.i18n import translate
 from slicer.ScriptedLoadableModule import *
 from slicer.util import VTKObservationMixin
 
+from SinoReconsVisual2SettingsPanel import SinoReconsVisual2SettingsPanel
+
 class VersionNotSupportedError(Exception):
     def __init__(self, message, version) -> None:
         super().__init__(message)
@@ -39,6 +41,9 @@ class VersionNotSupportedError(Exception):
 # -----------------------------
 SETTINGS_KEY_BACKEND_URL = "SinoReconsVisual2/BackendUrl"
 DEFAULT_BACKEND_URL = "http://127.0.0.1:8000"
+
+SETTINGS_KEY_SHOW_SINOGRAM_ON_SENSOR = "SinoReconsVisual2/ShowSinogramOnSensor"
+SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST = "SinoReconsVisual2/ShowRegionsOfInterest"
 
 def get_saved_base_url() -> str:
     """Return the persisted backend base URL or default."""
@@ -84,7 +89,7 @@ class SinoReconsVisual2(ScriptedLoadableModule):
         self.parent.contributors = ["Oualid Burström (LTU)", "Julius Häger (KTH)"]
         self.parent.helpText = _("The SinoReconsVisual2 extension enables users ...")
         self.parent.acknowledgementText = _("")
-        iconPath = os.path.join(get_icons_folder(), "SinoReconsVisual2.png")
+        iconPath = os.path.join(get_icons_folder(), "SinoReconsVisual2_v2.svg")
         if os.path.exists(iconPath):
             self.parent.icon = qt.QIcon(iconPath)
 
@@ -130,8 +135,10 @@ class SampleData:
 
     totalSamples: int
 
-    sinogram_min: np.float32
-    sinogram_max: np.float32
+    sinogram_shape: tuple[int, int, int]
+
+    sinogram_min_value: np.float32
+    sinogram_max_value: np.float32
 
     bounds_min: np.typing.NDArray[np.float32]
     bounds_max: np.typing.NDArray[np.float32]
@@ -156,6 +163,7 @@ class ROIJsonData:
     resolution_x: int
     resolution_y: int
     resolution_z: int
+    auto_resolution: bool
 
 class ROIData:
     name: str
@@ -165,6 +173,7 @@ class ROIData:
     sinogram_start_index: int
     sinogram_end_index: int
     resolution: tuple[int, int, int]
+    auto_resolution: bool
     _modified: bool = False
 
     original_path: Path|None = None
@@ -174,7 +183,7 @@ class ROIData:
         size = self.roi_node.GetSize()
         center_str = f"{center.GetX()},{center.GetY()},{center.GetZ()}"
         size_str = f"{size[0]},{size[1]},{size[2]}"
-        return ROIJsonData(self.uuid, center_str, size_str, self.sinogram_start_index, self.sinogram_end_index, self.resolution[0], self.resolution[1], self.resolution[2])
+        return ROIJsonData(self.uuid, center_str, size_str, self.sinogram_start_index, self.sinogram_end_index, self.resolution[0], self.resolution[1], self.resolution[2], self.auto_resolution)
 
 class QROINameValidator(qt.QValidator):
     roi_list: qt.QListWidget
@@ -184,19 +193,14 @@ class QROINameValidator(qt.QValidator):
         
 
     def validate(self, input: str, pos: int) -> qt.QValidator.State:
-        #print(f"validate: {input}")
         import pathvalidate
         try:
             pathvalidate.validate_filename(f"{input}.json", platform=pathvalidate.Platform.UNIVERSAL)
         except pathvalidate.ValidationError as e:
-            print(f"{e}")
             if e.reason == pathvalidate.ErrorReason.RESERVED_NAME:
-                print(f"validate: {input} reserved")
                 return qt.QValidator.Intermediate
             else:
-                print(f"validate: {input} invalid")
                 return qt.QValidator.Invalid
-        print(f"validate: {input} ok")
         return qt.QValidator.Acceptable
             
 
@@ -219,7 +223,17 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.session = requests.Session()
         
         # FIXME: I'm unable to figure out how to make resources from qrc files work...
+        # - Julius Häger 2026-05-13
         qt.QIcon.setThemeName("light")
+
+        
+        # FIXME: There is no way to remove a settings panel once it has been added...
+        # So either we accept that we can't reload the settings panel, or
+        # we figure out a way to make reloading the settings possible?
+        # - Julius Häger 2026-05-13
+        #self.test = SinoReconsVisual2SettingsPanel(slicer.util.loadUI(self.resourcePath("UI/SinoReconsVisual2SettingsPanel.ui")))
+        #slicer.app.settingsDialog().addPanel("SinoReconsVisual2", qt.QIcon(os.path.join(get_icons_folder(), "SinoReconsVisual2_v2.svg")), self.test.settingsPanel)
+        #print(slicer.app.settingsDialog().currentPanel())
 
         # Load and attach UI
         uiWidget = slicer.util.loadUI(self.resourcePath("UI/SinoReconsVisual2.ui"))
@@ -251,7 +265,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
         # FIXME: Change to currentIndexChanged...
         self.ui.reconstructionMethodComboBox.currentTextChanged.connect(self.onReconstructionMethodChanged)
+
         self.ui.showSinogramOnSensorCheckbox.stateChanged.connect(self.setImageOnSensor)
+        self.ui.showSinogramOnSensorCheckbox.setChecked(qt.QSettings().value(SETTINGS_KEY_SHOW_SINOGRAM_ON_SENSOR, False))
 
         self.ui.playButton.toggled.connect(self.playButtonToggled)
         self.ui.playSpeedSlider.valueChanged.connect(lambda x : self.ui.playSpeedLabel.setText(f"Speed: x{x}"))
@@ -277,6 +293,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.sceneObjects = self.createSceneObjects()
 
         self.ui.showROICheckbox.stateChanged.connect(self.showROIs)
+        self.ui.showROICheckbox.setChecked(qt.QSettings().value(SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST, False))
 
         if not self.ui.roiCenterCoordinateWidget.connect("coordinatesChanged(double, double, double, double)", self.roiCenterChanged):
             self.ui.roiCenterCoordinateWidget.coordinatesChanged.connect(self.roiCenterChangedOld)
@@ -307,19 +324,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             x, y = caller.GetEventPosition()
 
             interactor = modelDM.GetInteractor()
-            picker = interactor.GetPicker()
-            renderer = modelDM.GetRenderer()
 
             y = interactor.GetSize()[1] - y
 
-            #if picker.Pick(x, y, 0, renderer):
-            #    print(picker.GetPickList())
-
-            #print(f"{event} {x} {y} h:{threeDView.height} {interactor.GetSize()} {modelDM.Pick(x, y)} {modelDM.GetPickedCellID()} {modelDM.GetPickedNodeID()} {modelDM.GetPickedPointID()} {modelDM.GetPickedRAS()}")
-            #print(f"{event} {x} {y} h:{threeDView.height} {interactor.GetSize()} {modelDM.GetPickedNodeID()} {modelDM.GetPickedSegmentID()}")
-            #print(f"{event} {x} {y} h:{threeDView.height} {interactor.GetSize()} {modelDM.GetInteractionNode()}")
-            print(x,y)
-            # VTK's y is bottom-up; the displayable manager's Pick expects that, so no flip needed.
             if modelDM.Pick(x, y) and modelDM.GetPickedNodeID():
                 nodeID = modelDM.GetPickedNodeID()  # this is the *display* node ID
                 displayNode = slicer.mrmlScene.GetNodeByID(nodeID)
@@ -328,20 +335,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 cellID = modelDM.GetPickedCellID()
                 print(f"Clicked {dataNode.GetName() if dataNode else '(none)'} at RAS={tuple(ras)} cell={cellID}")
 
-        self.tag = interactor.AddObserver(vtk.vtkCommand.LeftButtonPressEvent, onLeftClick, 1.0)
-        # To remove later: interactor.RemoveObserver(tag)
-
-        #interactor = slicer.app.layoutManager().threeDWidget(0).threeDView().interactor()
-        #self.interactor_observer = interactor.AddObserver(vtk.vtkCommand.StartInteractionEvent, self.interactorEvent)
-
-    def interactorEvent(self, interactor : vtk.vtkRenderWindowInteractor, event):
-        print(f"my observer {event}")
-    #    if event == 'LeftButtonPressEvent':
-    #        pos = interactor.GetEventPosition()
-    #        renderer = interactor.FindPokedRenderer(pos[0], pos[1])
-    #        picker = interactor.GetPicker()
-    #        if picker.Pick(pos[0], pos[1], 0, renderer) != 0:
-    #            print(picker.GetPickList())
+        self.interactor_observer_tag = interactor.AddObserver(vtk.vtkCommand.LeftButtonPressEvent, onLeftClick, 1.0)
 
     class ROIListEventFilter(qt.QObject):
         roi_list_widget: qt.QListWidget
@@ -356,13 +350,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.roi_list_widget_viewport.installEventFilter(self)
         
         def eventFilter(self, source, event) -> bool:
-            # FIXME: InputMethodQueryEvents cause all kinds of havock crashing 3D Slicer all together.
-            # The crashing only happens sometimes and it seems to be related to recursive calls to eventFilter
-            # though I have no idea how this function is getting called recursively...
-            # - Julius Häger 2026-04-08
-            #if event.type() == qt.QEvent.InputMethodQuery:
-            #    return False
-            
             if source is self.roi_list_widget:
                 if event.type() == qt.QEvent.KeyPress:
                     if event.key() == qt.Qt.Key_Escape:
@@ -406,15 +393,13 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             layoutSwitchActionParent = layoutMenu  # use `layoutMenu` to add inside layout list, use `viewToolBar` to add next the standard layout list
             layoutSwitchAction = layoutSwitchActionParent.addAction("Sinogram layout") # add inside layout list
             layoutSwitchAction.setData(customLayoutId)
-            layoutSwitchAction.setIcon(qt.QIcon(os.path.join(get_icons_folder(), "SinoReconsVisual2.png")))
+            layoutSwitchAction.setIcon(qt.QIcon(os.path.join(get_icons_folder(), "SinoReconsVisual2_v2.svg")))
             layoutSwitchAction.setToolTip("3D and sinogram view")
 
     def cleanup(self):
-        #interactor = slicer.app.layoutManager().threeDWidget(0).threeDView().interactor()
-        #interactor.RemoveObserver(self.interactor_observer)
-
-        interactor = slicer.app.layoutManager().threeDWidget(0).threeDView().interactor()
-        interactor.RemoveObserver(self.tag)
+        if hasattr(self, 'interactor_observer_tag'):
+            interactor = slicer.app.layoutManager().threeDWidget(0).threeDView().interactor()
+            interactor.RemoveObserver(self.interactor_observer_tag)
 
         self.destroySceneObjects()
         if hasattr(self, 'volume_node') and self.volume_node:
@@ -422,10 +407,17 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         if hasattr(self, 'full_detail_volume_node') and self.full_detail_volume_node:
             slicer.mrmlScene.RemoveNode(self.full_detail_volume_node)
         
-        for row in range(self.ui.roiListWidget.count):
-            item = self.ui.roiListWidget.item(row)
-            itemData: ROIData = item.data(qt.Qt.UserRole)
-            slicer.mrmlScene.RemoveNode(itemData.roi_node)
+        if hasattr(self, 'ui'):
+            for row in range(self.ui.roiListWidget.count):
+                item = self.ui.roiListWidget.item(row)
+                itemData: ROIData = item.data(qt.Qt.UserRole)
+                slicer.mrmlScene.RemoveNode(itemData.roi_node)
+
+    def onReload(self):
+        import importlib
+        import SinoReconsVisual2SettingsPanel
+        importlib.reload(SinoReconsVisual2SettingsPanel)
+        ScriptedLoadableModuleWidget.onReload(self)
 
     # -----------------------------
     # Utility
@@ -530,8 +522,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         params["REC_MAX_X"] = metadata["REC_MAX_X"]
         params["REC_MAX_Y"] = metadata["REC_MAX_Y"]
         params["REC_MAX_Z"] = trajectory[-1][2]
-        params['SINOGRAM_MIN'] = self.sampleData.sinogram_min
-        params['SINOGRAM_MAX'] = self.sampleData.sinogram_max
+        params['SINOGRAM_MIN'] = 0
+        params['SINOGRAM_MAX'] = self.sampleData.totalSamples
         params["REC_NPX_X"] = metadata['REC_NPX_X']
         params["REC_NPX_Y"] = metadata['REC_NPX_Y']
         params["REC_NPX_Z"] = int((params["REC_MAX_Z"] - params["REC_MIN_Z"]) // metadata['REC_PIC_SIZE'])
@@ -767,8 +759,10 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 self.ui.statusLabel.setText('Status: <font color="red">Failed to load sample</font>')
                 slicer.util.errorDisplay(f"Failed to load sample {response.status_code}\n{response.content}")
             response_json = response.json()
-            self.sampleData.sinogram_min = response_json["sinogram_min"]
-            self.sampleData.sinogram_max = response_json["sinogram_max"]
+            self.sampleData.sinogram_min_value = response_json["sinogram_min"]
+            self.sampleData.sinogram_max_value = response_json["sinogram_max"]
+            self.sampleData.sinogram_shape = tuple(response_json["sinogram_shape"])
+            print("shape ", self.sampleData.sinogram_shape)
             self.sampleData.specie = str(sample["specie"])
             self.sampleData.tree_ID = int(sample["tree_ID"])
             self.sampleData.disk_ID = int(sample["disk_ID"])
@@ -839,11 +833,13 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
     def showROIs(self, state : int):
         if state == qt.Qt.Checked:
+            qt.QSettings().setValue(SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST, True)
             for row in range(self.ui.roiListWidget.count):
                 item = self.ui.roiListWidget.item(row)
                 itemData: ROIData = item.data(qt.Qt.UserRole)
                 itemData.roi_node.GetMarkupsDisplayNode().Visibility3DOn()
         else:
+            qt.QSettings().setValue(SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST, False)
             for row in range(self.ui.roiListWidget.count):
                 item = self.ui.roiListWidget.item(row)
                 itemData: ROIData = item.data(qt.Qt.UserRole)
@@ -891,16 +887,11 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             if (roi_data._modified):
                 edit_str += "*"
             model.setData(index, edit_str, qt.Qt.EditRole)
-            #with open("test.txt", "a") as f:
-            #    f.write(f"setModelData {editor} {model} {index} editor user property: {editor.metaObject().userProperty().name()}, index EditRole data: {index.data(qt.Qt.EditRole)} UserRole {index.data(qt.Qt.UserRole).name}\n")
 
         def setEditorData(self, editor: qt.QWidget, index: qt.QModelIndex) -> None:
-            #print(f"setEditorData {editor} {index} {editor.data(qt.Qt.UserRole)}")
             roi_data: ROIData = index.data(qt.Qt.UserRole)
             user_property = editor.metaObject().userProperty().name()
             editor.setProperty(user_property, roi_data.name)
-            #with open("test.txt", "a") as f:
-            #    f.write(f"setEditorData {editor} {index} {editor.metaObject().userProperty().name()} index EditRole data: {index.data(qt.Qt.EditRole)} UserRole {index.data(qt.Qt.UserRole).name}\n")
 
     def addNewROIClicked(self):
         self.addROI()
@@ -913,6 +904,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                sinogram_start: int|None = None,
                sinogram_end: int|None = None,
                resolution: tuple[int, int, int]|None = None,
+               auto_resolution: bool|None = None,
                file: Path|None = None) -> ROIData:
         
         def roiListWidgetHasName(name: str) -> bool:
@@ -955,9 +947,13 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             # Default resolution
             curr_size = roi_data.roi_node.GetSize()
             rec_pic_size = self.sampleData.metadata['REC_PIC_SIZE']
-            roi_data.resolution = (curr_size[0] // rec_pic_size, curr_size[1] // rec_pic_size, curr_size[2] // rec_pic_size)
+            roi_data.resolution = (int(curr_size[0] // rec_pic_size), int(curr_size[1] // rec_pic_size), int(curr_size[2] // rec_pic_size))
             print(f"Default resolution: {roi_data.resolution}")
 
+        if auto_resolution is not None:
+            roi_data.auto_resolution = auto_resolution
+        else:
+            roi_data.auto_resolution = True
 
         # Update UI with the new roi
         roi_data.roi_node.AddObserver(vtk.vtkCommand.ModifiedEvent, self.roiNodeChanged)
@@ -1080,6 +1076,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.ui.sinogramRangeWidget.setValues(itemData.sinogram_start_index, itemData.sinogram_end_index)
             self.ui.sinogramRangeWidget.blockSignals(False)
             self.updateRoiSinogramRange(itemData.sinogram_start_index, itemData.sinogram_end_index, True)
+            self.updateROIMetadataLabel(itemData)
+
+            self.ui.roiResolutionCoordinateWidget.enabled = not itemData.auto_resolution
 
             self.ui.roiSaveButton.setEnabled(itemData._modified)
             
@@ -1096,9 +1095,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         if enable:
             roiDisplayNode.SetSelectedColor(1.0, 0.0, 0.0)
             roiDisplayNode.SetHandlesInteractive(True)
-            roiDisplayNode.SetFillOpacity(0.7)
-            roiDisplayNode.SetOutlineOpacity(1.0)
-            roiDisplayNode.SetTranslationHandleVisibility(True)
+            roiDisplayNode.SetFillOpacity(0.5)
+            roiDisplayNode.SetOutlineOpacity(0.8)
+            roiDisplayNode.SetTranslationHandleVisibility(False)
             roiDisplayNode.SetScaleHandleVisibility(True)
 
             for i in range(roiNode.GetNumberOfControlPoints()):
@@ -1106,8 +1105,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         else:
             roiDisplayNode.SetSelectedColor(0.1, 0.1, 0.1)
             roiDisplayNode.SetHandlesInteractive(False)
-            roiDisplayNode.SetFillOpacity(0.2)
-            roiDisplayNode.SetOutlineOpacity(0.4)
+            roiDisplayNode.SetFillOpacity(0.1)
+            roiDisplayNode.SetOutlineOpacity(0.2)
+            
             
             for i in range(roiNode.GetNumberOfControlPoints()):
                 roiNode.SetNthControlPointVisibility(i, False)
@@ -1147,6 +1147,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         data["size"] = (size[0], size[1], size[2])
         data["sinogram_range"] = (roi.sinogram_start_index, roi.sinogram_end_index)
         data["resolution"] = roi.resolution
+        data["auto_resolution"] = roi.auto_resolution
 
         # FIXME: If this ROI has changed name we want to delete the old file...
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1179,11 +1180,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         size = vtk.vtkVector3f(data["size"])
         sinogram_start_index = int(data["sinogram_range"][0])
         sinogram_end_index = int(data["sinogram_range"][1])
-        if "resolution" in data:
-            resolution = (int(data["resolution"][0]), int(data["resolution"][1]), int(data["resolution"][2]))
-        else:
-            resolution = None
-
+        resolution = (int(data["resolution"][0]), int(data["resolution"][1]), int(data["resolution"][2]))
+        auto_resolution = bool(data["auto_resolution"])
+        
         file_mtime = os.path.getmtime(path)
 
         # FIXME: Check if the uuid is unique
@@ -1221,8 +1220,67 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                         print(f"Duplicate uuid found for files '{itemData.original_path}' and '{path}'. '{itemData.original_path}' had newer modification date so I'm using that.")
 
         if should_add:
-            roi = self.addROI(name, id, center, size, sinogram_start_index, sinogram_end_index, resolution, path)
+            roi = self.addROI(name, id, center, size, sinogram_start_index, sinogram_end_index, resolution, auto_resolution, path)
             self.roiUpdateModified(roi, False)
+
+    def resetROIFromFile(self, roi: ROIData):
+        if (roi.original_path == None):
+            print(f"Trying to reset roi '{roi.name}' from file, but it has never been saved to file. This is a plugin error as this should never be allowed to happen.")
+            return
+        path : Path = roi.original_path
+        data: dict[str, typing.Any]
+        with open(path, "r") as f:
+            data = json.load(f)
+        version = int(data["version"])
+        if version != 0:
+            raise VersionNotSupportedError("The ROI file version is newer than this plugin understands. Maybe there is a new plugin version?", version)
+        assert roi.uuid == uuid.UUID(data["uuid"])
+        roi.name = path.stem
+        roi.roi_node.SetName(roi.name)
+        roi.roi_node.SetCenter(vtk.vtkVector3f(data["center"]))
+        roi.roi_node.SetSize(vtk.vtkVector3f(data["size"]))
+        roi.sinogram_start_index = int(data["sinogram_range"][0])
+        roi.sinogram_end_index = int(data["sinogram_range"][1])
+        roi.resolution = (int(data["resolution"][0]), int(data["resolution"][1]), int(data["resolution"][2]))
+        # FIXME: Update the UI if this roi is the selected roi.
+        if self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow).data(qt.Qt.UserRole) == roi:
+            center = roi.roi_node.GetCenter()
+            size = roi.roi_node.GetSize()
+            resolution = roi.resolution
+            try:
+                self.ui.roiCenterCoordinateWidget.blockSignals(True)
+                self.ui.roiCenterCoordinateWidget.setCoordinates(center.GetX(), center.GetY(), center.GetZ(), 0)
+                self.ui.roiCenterCoordinateWidget.blockSignals(False)
+
+                self.ui.roiSizeCoordinateWidget.blockSignals(True)
+                self.ui.roiSizeCoordinateWidget.setCoordinates(size[0], size[1], size[2], 0)
+                self.ui.roiSizeCoordinateWidget.blockSignals(False)
+
+                self.ui.roiResolutionCoordinateWidget.blockSignals(True)
+                self.ui.roiResolutionCoordinateWidget.setCoordinates(resolution[0], resolution[1], resolution[2], 0)
+                self.ui.roiResolutionCoordinateWidget.blockSignals(False)
+            except:
+                # Current version of slicer doesn't have the setCoordinate PR merged yet.
+                # See: https://github.com/commontk/CTK/pull/1417
+                self.ui.roiCenterCoordinateWidget.blockSignals(True)
+                self.ui.roiCenterCoordinateWidget.coordinates = f"{center.GetX()},{center.GetY()},{center.GetZ()}"
+                self.ui.roiCenterCoordinateWidget.blockSignals(False)
+
+                self.ui.roiSizeCoordinateWidget.blockSignals(True)
+                self.ui.roiSizeCoordinateWidget.coordinates = f"{size[0]},{size[1]},{size[2]}"
+                self.ui.roiSizeCoordinateWidget.blockSignals(False)
+
+                self.ui.roiResolutionCoordinateWidget.blockSignals(True)
+                self.ui.roiResolutionCoordinateWidget.coordinates = f"{resolution[0]},{resolution[1]},{resolution[2]}"
+                self.ui.roiResolutionCoordinateWidget.blockSignals(False)
+
+            self.ui.sinogramRangeWidget.blockSignals(True)
+            self.ui.sinogramRangeWidget.setValues(roi.sinogram_start_index, roi.sinogram_end_index)
+            self.ui.sinogramRangeWidget.blockSignals(False)
+            self.updateRoiSinogramRange(roi.sinogram_start_index, roi.sinogram_end_index, True)
+
+        self.roiUpdateModified(roi, False)
+
 
     # PythonQt seems to bind the parameter as a 'double'
     # instead of a 'double*' meaning the parameter is
@@ -1261,6 +1319,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
         roiNode.SetSize([x, y, z])
 
+        if itemData.auto_resolution:
+            self.roiUpdateResolution(itemData)
+
         self.roiUpdateModified(itemData, True)
 
     def roiResolutionChangedOld(self, _broken):
@@ -1276,8 +1337,17 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         itemData: ROIData = item.data(qt.Qt.UserRole)
         
         itemData.resolution = (int(x), int(y), int(z))
+
+        self.updateROIMetadataLabel(itemData)
         
         self.roiUpdateModified(itemData, True)
+
+    def roiUpdateResolution(self, roi: ROIData):
+        assert roi.auto_resolution
+        curr_size = roi.roi_node.GetSize()
+        rec_pic_size = self.sampleData.metadata['REC_PIC_SIZE']
+        roi.resolution = (int(curr_size[0] // rec_pic_size), int(curr_size[1] // rec_pic_size), int(curr_size[2] // rec_pic_size))
+        self.ui.roiResolutionCoordinateWidget.coordinates = f"{roi.resolution[0]},{roi.resolution[1]},{roi.resolution[2]}"
 
     def getROIDataFromNode(self, roi_node: slicer.vtkMRMLMarkupsROINode) -> ROIData|None:
         for row in range(self.ui.roiListWidget.count):
@@ -1296,6 +1366,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         # FIXME: Check that anything actually changed?
         modified = False
 
+        roi = self.getROIDataFromNode(roiNode)
+        assert roi != None
+        
         try:
             # FIXME: Very inefficient to set the coordinates through strings
             # FIXME: The coordinate string that is returned is rounded to the number of decimals used to display
@@ -1314,6 +1387,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             if old_size != [size[0],size[1],size[2]]:
                 print(f"change size! {old_size} -> {[size[0],size[1],size[2]]}")
                 self.ui.roiSizeCoordinateWidget.setCoordinates(size[0],size[1],size[2], 0)
+
                 modified = True
             self.ui.roiSizeCoordinateWidget.blockSignals(False)
         except:
@@ -1333,12 +1407,12 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             if old_size != [size[0],size[1],size[2]]:
                 print(f"change size! {old_size} -> {[size[0],size[1],size[2]]}")
                 self.ui.roiSizeCoordinateWidget.coordinates = f"{size[0]},{size[1]},{size[2]}"
+                if roi.auto_resolution:
+                    self.roiUpdateResolution(roi)
                 modified = True
             self.ui.roiSizeCoordinateWidget.blockSignals(False)
-            pass
-
-        roi = self.getROIDataFromNode(roiNode)
-        if roi is not None and modified:
+            
+        if modified:
             self.roiUpdateModified(roi, True)
 
     def roiSinogramValuesChanged(self, minVal: float, maxVal: float):
@@ -1354,6 +1428,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         itemData.sinogram_end_index = maxVal
 
         self.updateRoiSinogramRange(minVal, maxVal, True)
+        self.updateROIMetadataLabel(itemData)
 
         self.roiUpdateModified(itemData, True)
 
@@ -1369,6 +1444,31 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             roi.roi_list_widget.setText(roi.name)
 
         self.ui.roiSaveButton.setEnabled(roi._modified)
+
+    def updateROIMetadataLabel(self, roi: ROIData):
+        size_of_float32 = 4
+        sinogram_slice_size = self.sampleData.sinogram_shape[1] * self.sampleData.sinogram_shape[2] * size_of_float32
+        input_size: int = (roi.sinogram_end_index - roi.sinogram_start_index) * sinogram_slice_size
+        output_size = roi.resolution[0] * roi.resolution[1] * roi.resolution[2] * size_of_float32
+
+        def format_bytes(size):
+            # 2**10 = 1024
+            power = 2**10
+            n = 0
+            power_labels = {0 : 'B', 1: 'KB', 2: 'MB', 3: 'GB', 4: 'TB'}
+            while size > power:
+                size /= power
+                n += 1
+            return f"{size:.{1}f}{power_labels[n]}"
+
+        self.ui.roiMetadataLabel.text = f"Input sinogram size: {format_bytes(input_size)}, Output volume size: {format_bytes(output_size)}"
+
+    def toggleROIAutoResolution(self, roi: ROIData, enable: bool):
+        if roi.auto_resolution != enable:
+            self.roiUpdateModified(roi, True)
+        roi.auto_resolution = enable
+        if self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow).data(qt.Qt.UserRole) == roi:
+            self.ui.roiResolutionCoordinateWidget.enabled = not enable
 
     def showROIItemContextMenu(self, pos: qt.QPoint) -> None:
         item = self.ui.roiListWidget.itemAt(pos)
@@ -1386,11 +1486,20 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         save.triggered.connect(lambda _: self.saveROIToFile(itemData, self._getSampleDirectory()))
         menu.addAction(save)
 
-        
         menu.addSeparator()
 
+        resetChanges = qt.QAction("Discard changes", menu)
+        resetChanges.enabled = itemData.original_path != None
+        resetChanges.triggered.connect(lambda _: self.resetROIFromFile(itemData))
+        menu.addAction(resetChanges)
+
+        autoResolutionToggle = qt.QAction("Auto Resolution", menu)
+        autoResolutionToggle.checkable = True
+        autoResolutionToggle.checked = itemData.auto_resolution
+        autoResolutionToggle.toggled.connect(lambda checked: self.toggleROIAutoResolution(itemData, checked))
+        menu.addAction(autoResolutionToggle)
+
         # FIXME: Add set appropriate resolution action
-        # FIXME: Add reset changes action.
         # FIXME: Add reset to default action.
 
         menu.addSeparator()
@@ -1505,8 +1614,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         sceneObjects.roiSinogramTrajectoryModelDisplay.SetColor((0.5765, 0.8431, 0.8118))
         sceneObjects.roiSinogramTrajectoryModelDisplay.SetLineWidth(4)
         sceneObjects.roiSinogramTrajectoryModelDisplay.SetVisibility(1)
-
-        #93d7cf
 
         return sceneObjects
 
@@ -1718,11 +1825,13 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         
         print(f"show on sensor: {state}")
         if state == qt.Qt.Checked:
+            qt.QSettings().setValue(SETTINGS_KEY_SHOW_SINOGRAM_ON_SENSOR, True)
             self.sceneObjects.sensorModelDisplay.SetTextureImageDataConnection(self.sceneObjects.sensorModelImageProducer.GetOutputPort())
             self.sceneObjects.sensorModelDisplay.SetOpacity(1.0)
             self.sceneObjects.sensorModelDisplay.SetInterpolation(slicer.vtkMRMLDisplayNode.FlatInterpolation)
             self.sceneObjects.sensorModelDisplay.SetScalarRangeFlag(slicer.vtkMRMLDisplayNode.UseDataScalarRange) # Data range = auto
         else:
+            qt.QSettings().setValue(SETTINGS_KEY_SHOW_SINOGRAM_ON_SENSOR, False)
             self.sceneObjects.sensorModelDisplay.SetTextureImageDataConnection(None)
             self.sceneObjects.sensorModelDisplay.SetOpacity(0.7)
             self.sceneObjects.sensorModelDisplay.SetInterpolation(slicer.vtkMRMLDisplayNode.PhongInterpolation)
@@ -1774,7 +1883,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 self.volume_node.name = f"Preview sinogram"
 
             self.volume_node.GetDisplayNode().SetAutoWindowLevel(False)
-            self.volume_node.GetDisplayNode().SetWindowLevelMinMax(self.sampleData.sinogram_min, self.sampleData.sinogram_max)
+            self.volume_node.GetDisplayNode().SetWindowLevelMinMax(self.sampleData.sinogram_min_value, self.sampleData.sinogram_max_value)
 
             # Update outline bounds.
             bounds = np.empty(6)
@@ -1786,7 +1895,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             print(f"[DEBUG] Adding/modifying volume took: {end - start} s")
 
             start = time.time()
-            tex_data = (np.iinfo(np.uint8).max * (img_data_mapped - self.sampleData.sinogram_min) / (self.sampleData.sinogram_max - self.sampleData.sinogram_min)).astype(np.uint8)
+            tex_data = (np.iinfo(np.uint8).max * (img_data_mapped - self.sampleData.sinogram_min_value) / (self.sampleData.sinogram_max_value - self.sampleData.sinogram_min_value)).astype(np.uint8)
             # FIXME: Do we need to flip here? What is the correct way to show this?
             # Alternatively the UV coordinates on the sensor geometry is "wrong"...
             #tex_data = np.flip(tex_data, axis=1)
@@ -1864,7 +1973,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 self.full_detail_volume_node.name = f"Full detail sinogram"
 
             self.full_detail_volume_node.GetDisplayNode().SetAutoWindowLevel(False)
-            self.full_detail_volume_node.GetDisplayNode().SetWindowLevelMinMax(self.sampleData.sinogram_min, self.sampleData.sinogram_max)
+            self.full_detail_volume_node.GetDisplayNode().SetWindowLevelMinMax(self.sampleData.sinogram_min_value, self.sampleData.sinogram_max_value)
             
             # Update outline bounds.
             bounds = np.empty(6)

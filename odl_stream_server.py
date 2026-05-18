@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Query, Request, BackgroundTasks
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 import logging
 from pydantic import BaseModel
@@ -20,6 +20,7 @@ import PIL
 import PIL.Image
 import multiprocessing
 import typing
+from filelock import FileLock, Timeout
 
 # #######################################################
 # Run:
@@ -481,6 +482,7 @@ def select_sample(sel: SampleSelect):
                 start = time.time()
                 print(f"[INFO] Generating sinogram cache (jp2)")
                 sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
+                # FIXME: Use cores - 1 instead of 32?
                 with multiprocessing.Pool(processes=32) as p:
                     p.map(compress_sinogram_slice_jp2, range(N))
                     # FIXME: Some way to report progress...?
@@ -495,38 +497,6 @@ def select_sample(sel: SampleSelect):
                 print(f"[INFO] Generated sinogram cache in {end - start} seconds ({jp2_size} b)")
 
             multiprocessing.Process(target=generate_sinogram_cache).start()
-
-            #start = time.time()
-            #print(f"[INFO] Generating sinogram cache (jp2)")
-            #sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
-            #Path.mkdir(sample_sinogram_cache_dir, parents=True, exist_ok=True)
-            ##with multiprocessing.Pool(processes=32) as p:
-            ##    p.map(compress_sinogram_slice_jp2, range(N))
-            ##    # FIXME: Some way to report progress...?
-            ##    p.close()
-            ##    p.join()
-            #end = time.time()
-
-            #import os
-            #jp2_size = 0
-            #for i in range(N):
-            #    jp2_size += os.path.getsize(sample_sinogram_cache_dir / f"{i}.jp2")
-            #print(f"[INFO] Generated sinogram cache in {end - start} seconds ({jp2_size} b)")
-
-            #print(f"[INFO] Generating sinogram cache (avif)")
-            #sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
-            #Path.mkdir(sample_sinogram_cache_dir, parents=True, exist_ok=True)
-            #with multiprocessing.Pool(processes=24) as p:
-            #    p.map(compress_sinogram_slice_avif, range(N))
-            #    # FIXME: Some way to report progress...?
-            #    p.close()
-            #    p.join()
-            #end = time.time()
-            #import os
-            #avif_size = 0
-            #for i in range(N):
-            #    avif_size += os.path.getsize(sample_sinogram_cache_dir / f"{i}.avif")
-            #print(f"[INFO] Generated sinogram cache in {end - start} seconds ({avif_size} b)")
         else:
             print(f"[DEBUG] Sample '{new_sample_name}' was already selected, doing nothing.")
 
@@ -538,30 +508,44 @@ def select_sample(sel: SampleSelect):
 def compress_sinogram_slice_jp2(i):
     global sample_name, sinogram, sinogramMin, sinogramMax
     sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
-    if Path.exists(sample_sinogram_cache_dir / f"{i}.jp2") == False:
-        slice_2d = sinogram[i, :, :].T
-        slice_min = np.min(slice_2d)
-        slice_max = np.max(slice_2d)
-        img_data = np.iinfo(np.uint8).max * (slice_2d - slice_min) / (slice_max - slice_min)
-        im = PIL.Image.fromarray(img_data.astype(np.uint8))
-        im.save(sample_sinogram_cache_dir / f"{i}.jp2", format="", irreversible=True, quality_mode="dB", quality_layers=[44])
-        # Save the dynamic range of the jp2 file so we can recover the correct values in the client
-        with open(sample_sinogram_cache_dir / f"{i}.jp2.json", 'w') as f:
-            json.dump({ "slice_min": repr(float(slice_min)), "slice_max": repr(float(slice_max)) }, f)
+    
+    file_path = sample_sinogram_cache_dir / f"{i}.jp2"
+    json_file_path = sample_sinogram_cache_dir / f"{i}.jp2.json"
+    lock_path = sample_sinogram_cache_dir / f"{i}.jp2.lock"
+    lock = FileLock(lock_path)
+    with lock.acquire(timeout=3):
+        if Path.exists(file_path) == False:
+            slice_2d = sinogram[i, :, :].T
+            slice_min = np.min(slice_2d)
+            slice_max = np.max(slice_2d)
+            img_data = np.iinfo(np.uint8).max * (slice_2d - slice_min) / (slice_max - slice_min)
+            im = PIL.Image.fromarray(img_data.astype(np.uint8))
+            im.save(file_path, format="", irreversible=True, quality_mode="dB", quality_layers=[44])
+            # Save the dynamic range of the jp2 file so we can recover the correct values in the client
+            with open(json_file_path, 'w') as f:
+                json.dump({ "slice_min": repr(float(slice_min)), "slice_max": repr(float(slice_max)) }, f)
+
+
 
 def compress_sinogram_slice_avif(i):
     global sample_name, sinogram, sinogramMin, sinogramMax
     sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
-    if Path.exists(sample_sinogram_cache_dir / f"{i}.avif") == False:
-        slice_2d = sinogram[i, :, :].T
-        slice_min = np.min(slice_2d)
-        slice_max = np.max(slice_2d)
-        img_data = np.iinfo(np.uint8).max * (slice_2d - slice_min) / (slice_max - slice_min)
-        im = PIL.Image.fromarray(img_data.astype(np.uint8))
-        im.save(sample_sinogram_cache_dir / f"{i}.avif", format="", max_threads=1, quality=57, speed=7, subsampling="4:0:0")
-        # Save the dynamic range of the avif file so we can recover the correct values in the client
-        with open(sample_sinogram_cache_dir / f"{i}.avif.json", 'w') as f:
-            json.dump({ "slice_min": repr(float(slice_min)), "slice_max": repr(float(slice_max)) }, f)
+
+    file_path = sample_sinogram_cache_dir / f"{i}.avif"
+    json_file_path = sample_sinogram_cache_dir / f"{i}.avif.json"
+    lock_path = sample_sinogram_cache_dir / f"{i}.avif.lock"
+    lock = FileLock(lock_path)
+    with lock.acquire(timeout=3):
+        if Path.exists(file_path) == False:
+            slice_2d = sinogram[i, :, :].T
+            slice_min = np.min(slice_2d)
+            slice_max = np.max(slice_2d)
+            img_data = np.iinfo(np.uint8).max * (slice_2d - slice_min) / (slice_max - slice_min)
+            im = PIL.Image.fromarray(img_data.astype(np.uint8))
+            im.save(file_path, format="", max_threads=1, quality=57, speed=7, subsampling="4:0:0")
+            # Save the dynamic range of the avif file so we can recover the correct values in the client
+            with open(json_file_path, 'w') as f:
+                json.dump({ "slice_min": repr(float(slice_min)), "slice_max": repr(float(slice_max)) }, f)
 
 #########################################################
 # get_sinogram_slice (route)
@@ -638,7 +622,10 @@ def get_sinogram_slice_fast(index: int):
         print("[DEBUG] Sinogram cache hit")
     else:
         print("[DEBUG] Sinogram cache miss")
-        compress_sinogram_slice_jp2(index)
+        try:
+            compress_sinogram_slice_jp2(index)
+        except Timeout as e:
+            return Response(headers={'reason': 'timeout', 'message': f'Timeout while waiting for lock file \'{e.lock_file}\' for a long time. Stale lock or sinogram slice compression taking a long time?'}, status_code=500)
     
     with open(meta_path) as f:
         headers = json.load(f)

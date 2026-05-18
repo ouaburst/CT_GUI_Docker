@@ -6,6 +6,7 @@ import qt
 import slicer
 import slicer.packaging
 import vtk
+import ctk
 import time
 import io
 import uuid
@@ -22,6 +23,7 @@ from pathlib import Path
 from typing import Optional
 from vtkmodules.util.numpy_support import numpy_to_vtk, vtk_to_numpy, numpy_to_vtkIdTypeArray
 from dataclasses import dataclass
+from collections.abc import Iterable
 
 from urllib.parse import urlparse
 from slicer.i18n import tr as _
@@ -1061,15 +1063,15 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 # Current version of slicer doesn't have the setCoordinate PR merged yet.
                 # See: https://github.com/commontk/CTK/pull/1417
                 self.ui.roiCenterCoordinateWidget.blockSignals(True)
-                self.ui.roiCenterCoordinateWidget.coordinates = f"{center.GetX()},{center.GetY()},{center.GetZ()}"
+                self.writeValuesToCoordinateWidget(self.ui.roiCenterCoordinateWidget, [center.GetX(),center.GetY(),center.GetZ()])
                 self.ui.roiCenterCoordinateWidget.blockSignals(False)
 
                 self.ui.roiSizeCoordinateWidget.blockSignals(True)
-                self.ui.roiSizeCoordinateWidget.coordinates = f"{size[0]},{size[1]},{size[2]}"
+                self.writeValuesToCoordinateWidget(self.ui.roiSizeCoordinateWidget, size)
                 self.ui.roiSizeCoordinateWidget.blockSignals(False)
 
                 self.ui.roiResolutionCoordinateWidget.blockSignals(True)
-                self.ui.roiResolutionCoordinateWidget.coordinates = f"{resolution[0]},{resolution[1]},{resolution[2]}"
+                self.writeValuesToCoordinateWidget(self.ui.roiResolutionCoordinateWidget, resolution)
                 self.ui.roiResolutionCoordinateWidget.blockSignals(False)
 
             self.ui.sinogramRangeWidget.blockSignals(True)
@@ -1263,15 +1265,15 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 # Current version of slicer doesn't have the setCoordinate PR merged yet.
                 # See: https://github.com/commontk/CTK/pull/1417
                 self.ui.roiCenterCoordinateWidget.blockSignals(True)
-                self.ui.roiCenterCoordinateWidget.coordinates = f"{center.GetX()},{center.GetY()},{center.GetZ()}"
+                self.writeValuesToCoordinateWidget(self.ui.roiCenterCoordinateWidget, [center.GetX(),center.GetY(),center.GetZ()])
                 self.ui.roiCenterCoordinateWidget.blockSignals(False)
 
                 self.ui.roiSizeCoordinateWidget.blockSignals(True)
-                self.ui.roiSizeCoordinateWidget.coordinates = f"{size[0]},{size[1]},{size[2]}"
+                self.writeValuesToCoordinateWidget(self.ui.roiSizeCoordinateWidget, size)
                 self.ui.roiSizeCoordinateWidget.blockSignals(False)
 
                 self.ui.roiResolutionCoordinateWidget.blockSignals(True)
-                self.ui.roiResolutionCoordinateWidget.coordinates = f"{resolution[0]},{resolution[1]},{resolution[2]}"
+                self.writeValuesToCoordinateWidget(self.ui.roiResolutionCoordinateWidget, resolution)
                 self.ui.roiResolutionCoordinateWidget.blockSignals(False)
 
             self.ui.sinogramRangeWidget.blockSignals(True)
@@ -1282,6 +1284,18 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.roiUpdateModified(roi, False)
 
 
+    # FIXME: This is a workaround for ctkCoordinateWidget not having
+    # any good python bindings. Here we are hoping that the children of the coordinate widget
+    # are sorted in axis order.
+    # https://github.com/commontk/CTK/pull/1417 adds better bindings for ctkCoordinateWidget
+    def readValuesFromCoordinateWidget(self, coordinateWidget) -> list[float]:
+        spinBoxes = coordinateWidget.children()
+        return [sb.value for sb in spinBoxes if type(sb) == ctk.ctkDoubleSpinBox]
+
+    def writeValuesToCoordinateWidget(self, coordinateWidget, coords: Iterable[float]):
+        # FIXME: Access the spinBoxes directly...
+        coordinateWidget.coordinates = str.join(',', [str(c) for c in coords])
+
     # PythonQt seems to bind the parameter as a 'double'
     # instead of a 'double*' meaning the parameter is
     # completely useless in python.
@@ -1289,14 +1303,16 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
     # https://github.com/commontk/CTK/pull/1417 updates this and adds a x,y,z,w overload
     # - Julius Häger 2026-04-29
     def roiCenterChangedOld(self, _broken):
-        coords = [float(x) for x in self.ui.roiCenterCoordinateWidget.coordinates.split(',')]
-        print("center old", coords)
-        self.roiCenterChanged(coords[0], coords[1], coords[2], 0)
+        x,y,z = self.readValuesFromCoordinateWidget(self.ui.roiCenterCoordinateWidget)
+        print("center old", x,y,z)
+        self.roiCenterChanged(x, y, z, 0)
 
     def roiCenterChanged(self, x: float, y: float, z: float, w: float):
         if self.ui.roiListWidget.currentRow == -1:
             return
         
+        
+
         item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
         itemData: ROIData = item.data(qt.Qt.UserRole)
         roiNode = itemData.roi_node
@@ -1305,9 +1321,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.roiUpdateModified(itemData, True)
 
     def roiSizeChangedOld(self, _broken):
-        coords = [float(x) for x in self.ui.roiSizeCoordinateWidget.coordinates.split(',')]
-        print("size old", coords)
-        self.roiSizeChanged(coords[0], coords[1], coords[2], 0)
+        x,y,z = self.readValuesFromCoordinateWidget(self.ui.roiSizeCoordinateWidget)
+        print("size old", x, y, z)
+        self.roiSizeChanged(x, y, z, 0)
 
     def roiSizeChanged(self, x: float, y: float, z: float, w: float):
         if self.ui.roiListWidget.currentRow == -1:
@@ -1325,9 +1341,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.roiUpdateModified(itemData, True)
 
     def roiResolutionChangedOld(self, _broken):
-        coords = [float(x) for x in self.ui.roiResolutionCoordinateWidget.coordinates.split(',')]
-        print("res old", coords)
-        self.roiResolutionChanged(coords[0], coords[1], coords[2], 0)
+        x,y,z = self.readValuesFromCoordinateWidget(self.ui.roiResolutionCoordinateWidget)
+        print("res old", x, y, z)
+        self.roiResolutionChanged(x, y, z, 0)
 
     def roiResolutionChanged(self, x: float, y: float, z: float, w: float):
         if self.ui.roiListWidget.currentRow == -1:
@@ -1347,7 +1363,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         curr_size = roi.roi_node.GetSize()
         rec_pic_size = self.sampleData.metadata['REC_PIC_SIZE']
         roi.resolution = (int(curr_size[0] // rec_pic_size), int(curr_size[1] // rec_pic_size), int(curr_size[2] // rec_pic_size))
-        self.ui.roiResolutionCoordinateWidget.coordinates = f"{roi.resolution[0]},{roi.resolution[1]},{roi.resolution[2]}"
+        self.writeValuesToCoordinateWidget(self.ui.roiResolutionCoordinateWidget, roi.resolution)
 
     def getROIDataFromNode(self, roi_node: slicer.vtkMRMLMarkupsROINode) -> ROIData|None:
         for row in range(self.ui.roiListWidget.count):
@@ -1377,7 +1393,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             old_center = [self.ui.roiCenterCoordinateWidget.getCoordinate(0), self.ui.roiCenterCoordinateWidget.getCoordinate(1), self.ui.roiCenterCoordinateWidget.getCoordinate(2)]
             if old_center != [center.GetX(),center.GetY(),center.GetZ()]:
                 print(f"change center! {old_center} -> {[center.GetX(),center.GetY(),center.GetZ()]}")
-                #self.ui.roiCenterCoordinateWidget.coordinates = new_center_str
                 self.ui.roiCenterCoordinateWidget.setCoordinates(center.GetX(), center.GetY(), center.GetZ(), 0)
                 modified = True
             self.ui.roiCenterCoordinateWidget.blockSignals(False)
@@ -1395,18 +1410,18 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             # See: https://github.com/commontk/CTK/pull/1417
 
             self.ui.roiCenterCoordinateWidget.blockSignals(True)
-            old_center = [float(x) for x in self.ui.roiCenterCoordinateWidget.coordinates.split(',')]
+            old_center = self.readValuesFromCoordinateWidget(self.ui.roiCenterCoordinateWidget)
             if old_center != [center.GetX(),center.GetY(),center.GetZ()]:
                 print(f"change center! {old_center} -> {[center.GetX(),center.GetY(),center.GetZ()]}")
-                self.ui.roiCenterCoordinateWidget.coordinates = f"{center.GetX()},{center.GetY()},{center.GetZ()}"
+                self.writeValuesToCoordinateWidget(self.ui.roiCenterCoordinateWidget, [center.GetX(),center.GetY(),center.GetZ()])
                 modified = True
             self.ui.roiCenterCoordinateWidget.blockSignals(False)
 
             self.ui.roiSizeCoordinateWidget.blockSignals(True)
-            old_size = [float(x) for x in self.ui.roiSizeCoordinateWidget.coordinates.split(',')]
+            old_size = self.readValuesFromCoordinateWidget(self.ui.roiSizeCoordinateWidget)
             if old_size != [size[0],size[1],size[2]]:
                 print(f"change size! {old_size} -> {[size[0],size[1],size[2]]}")
-                self.ui.roiSizeCoordinateWidget.coordinates = f"{size[0]},{size[1]},{size[2]}"
+                self.writeValuesToCoordinateWidget(self.ui.roiSizeCoordinateWidget, size)
                 if roi.auto_resolution:
                     self.roiUpdateResolution(roi)
                 modified = True
@@ -1861,6 +1876,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             response_fast = self.session.get(f"{base}/get_sinogram_slice_fast/{index}")
             end = time.time()
             print(f"[DEBUG] Download (fast) took {end-start} s {len(response_fast.content)/1000} kb")
+
+            if response_fast.status_code >= 400:
+                print(f"Failed to load sinogram slice: {response_fast.headers}")
 
             sliceMin = np.float32(response_fast.headers["slice_min"])
             sliceMax = np.float32(response_fast.headers["slice_max"])

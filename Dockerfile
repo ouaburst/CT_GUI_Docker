@@ -51,11 +51,8 @@ RUN mamba install -y \
 # ------------------------------
 RUN pip install --no-cache-dir \
       vtk==9.6.1 \
-      #torch==2.1.0 \
-      #torchvision==0.16.0 \
-      #torchaudio==2.1.0 \
-      #--extra-index-url https://download.pytorch.org/whl/cu121 \
-      pillow==12.1.1 \
+      pillow==12.2.0 \
+      filelock==3.29.0 \
   && pip install --no-cache-dir \
       fastapi uvicorn[standard] starlette requests scipy pynrrd pyvista
 

@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import logging
 import requests
@@ -31,7 +32,7 @@ from slicer.i18n import translate
 from slicer.ScriptedLoadableModule import *
 from slicer.util import VTKObservationMixin
 
-from SinoReconsVisual2SettingsPanel import SinoReconsVisual2SettingsPanel
+from settings import SinoReconsVisual2SettingsPanel
 
 class VersionNotSupportedError(Exception):
     def __init__(self, message, version) -> None:
@@ -44,8 +45,10 @@ class VersionNotSupportedError(Exception):
 SETTINGS_KEY_BACKEND_URL = "SinoReconsVisual2/BackendUrl"
 DEFAULT_BACKEND_URL = "http://127.0.0.1:8000"
 
+SETTINGS_KEY_SHOW_SOURCE_DETECTOR = "SinoReconsVisual2/ShowSourceDetector"
 SETTINGS_KEY_SHOW_SINOGRAM_ON_SENSOR = "SinoReconsVisual2/ShowSinogramOnSensor"
 SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST = "SinoReconsVisual2/ShowRegionsOfInterest"
+SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST_SOURCE_DETECTOR = "SinoReconsVisual2/ShowRegionsOfInterestSinogramRangeSourceDetector"
 
 def get_saved_base_url() -> str:
     """Return the persisted backend base URL or default."""
@@ -98,7 +101,7 @@ class SinoReconsVisual2(ScriptedLoadableModule):
         slicer.packaging.pip_install("pynrrd", requester="SinoReconsVisual2")
         slicer.packaging.pip_install("pathvalidate", requester="SinoReconsVisual2")
 
-class Vtk3DSceneObjects:
+class SourceDetectorObjects:
     sourceModel: slicer.vtkMRMLModelNode
     sourceModelDisplay: slicer.vtkMRMLModelDisplayNode
 
@@ -109,6 +112,9 @@ class Vtk3DSceneObjects:
     sensorModelDisplay: slicer.vtkMRMLModelDisplayNode
     sensorModelImage: vtk.vtkImageData
     sensorModelImageProducer: vtk.vtkTrivialProducer
+
+class Vtk3DSceneObjects:
+    sourceDetectorObjects: SourceDetectorObjects
 
     trajectoryModel: slicer.vtkMRMLModelNode
     trajectoryModelDisplay: slicer.vtkMRMLModelDisplayNode
@@ -123,6 +129,9 @@ class Vtk3DSceneObjects:
 
     roiSinogramRangeModel: slicer.vtkMRMLModelNode
     roiSinogramRangeModelDisplay: slicer.vtkMRMLModelDisplayNode
+
+    sinogramRangeStartSourceDetector: SourceDetectorObjects
+    sinogramRangeEndSourceDetector: SourceDetectorObjects
 
     roiSinogramTrajectoryModel: slicer.vtkMRMLModelNode
     roiSinogramTrajectoryModelDisplay: slicer.vtkMRMLModelNode
@@ -206,6 +215,11 @@ class QROINameValidator(qt.QValidator):
         return qt.QValidator.Acceptable
             
 
+def getFirstChildOfType(widget: qt.QWidget, ofType: type) -> qt.QObject:
+    for child in widget.children():
+        if type(child) == ofType:
+            return child
+
 class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     sceneObjects: Vtk3DSceneObjects
     sampleData: SampleData
@@ -228,7 +242,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         # - Julius Häger 2026-05-13
         qt.QIcon.setThemeName("light")
 
-        
         # FIXME: There is no way to remove a settings panel once it has been added...
         # So either we accept that we can't reload the settings panel, or
         # we figure out a way to make reloading the settings possible?
@@ -268,7 +281,10 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         # FIXME: Change to currentIndexChanged...
         self.ui.reconstructionMethodComboBox.currentTextChanged.connect(self.onReconstructionMethodChanged)
 
-        self.ui.showSinogramOnSensorCheckbox.stateChanged.connect(self.setImageOnSensor)
+        self.ui.showSourceDetectorCheckBox.stateChanged.connect(self.showSourceDetectorStateChanged)
+        self.ui.showSourceDetectorCheckBox.setChecked(qt.QSettings().value(SETTINGS_KEY_SHOW_SOURCE_DETECTOR, True))
+
+        self.ui.showSinogramOnSensorCheckbox.stateChanged.connect(self.showSinogramOnSensorStateChanged)
         self.ui.showSinogramOnSensorCheckbox.setChecked(qt.QSettings().value(SETTINGS_KEY_SHOW_SINOGRAM_ON_SENSOR, False))
 
         self.ui.playButton.toggled.connect(self.playButtonToggled)
@@ -296,6 +312,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
         self.ui.showROICheckbox.stateChanged.connect(self.showROIs)
         self.ui.showROICheckbox.setChecked(qt.QSettings().value(SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST, False))
+
+        self.ui.showROISinogramRangeSourceDetectorCheckBox.stateChanged.connect(self.showROISinogramRangeSourceDetectorStateChanged)
+        self.ui.showROISinogramRangeSourceDetectorCheckBox.setChecked(qt.QSettings().value(SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST_SOURCE_DETECTOR, True))
 
         if not self.ui.roiCenterCoordinateWidget.connect("coordinatesChanged(double, double, double, double)", self.roiCenterChanged):
             self.ui.roiCenterCoordinateWidget.coordinatesChanged.connect(self.roiCenterChangedOld)
@@ -366,16 +385,24 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             return False
 
     def registerSinogramLayout(self):
+        # viewgroup=196291749 is a hopefully unique viewgroup number so that
+        # that slice node doesn't consider itself in the same coordinate space
+        # as the other slice nodes that change coordinates depending on what
+        # happens in the 3D view. By placing this slice node in a unique view group
+        # we prevent it from randomly changing coordinates etc.
+        # See: https://discourse.slicer.org/t/decoupled-custom-slice-widget-in-messagebox/1215/14
+        # - Julius Häger 2026-05-19
         layoutDesc = """
         <layout type="vertical">
             <item><view class="vtkMRMLViewNode" singletontag="1">
                 <property name="viewlabel" action="default">1</property>
                 <property name="viewcolor" action="default">#FFFF00</property>
             </view></item>
-            <item><view class="vtkMRMLSliceNode" singletontag="Yellow">
-                <property name="orientation" action="default">Axial</property>
+            <item><view class="vtkMRMLSliceNode" singletontag="Gray">
+                <property name="orientation" action="default">Sagittal</property>
                 <property name="viewlabel" action="default">Y</property>
-                <property name="viewcolor" action="default">#0000FF</property>
+                <property name="viewcolor" action="default">#A0A0A0</property>s
+                <property name="viewgroup" action="default">196291749</property>
             </view></item>
         </layout>
         """
@@ -417,8 +444,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
     def onReload(self):
         import importlib
-        import SinoReconsVisual2SettingsPanel
-        importlib.reload(SinoReconsVisual2SettingsPanel)
+        import settings
+        importlib.reload(settings)
         ScriptedLoadableModuleWidget.onReload(self)
 
     # -----------------------------
@@ -824,10 +851,18 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             sample_roi_dir = Path(os.path.expanduser(f"~/Documents/SinoRecons/{self.sampleData.specie}_{self.sampleData.tree_ID}_{self.sampleData.disk_ID}/"))
             self.clearROIs()
             self.loadROIsForSample(sample_roi_dir)
+            # Start with no ROI selected.
+            self.ui.roiListWidget.setCurrentRow(-1)
 
             # Load first frame
             self.onIndexChanged(0)
-            self.setImageOnSensor(self.ui.showSinogramOnSensorCheckbox.checkState())
+            slicer.app.layoutManager().sliceWidget("Gray").sliceController().fitSliceToBackground()
+
+            self.setImageOnSensor(self.sceneObjects.sourceDetectorObjects, self.ui.showSinogramOnSensorCheckbox.checkState())
+            self.setSourceDetectorVisible(self.sceneObjects.sourceDetectorObjects, self.ui.showSourceDetectorCheckBox.checked)
+
+            self.setImageOnSensor(self.sceneObjects.sinogramRangeStartSourceDetector, self.ui.showSinogramOnSensorCheckbox.checkState())
+            self.setImageOnSensor(self.sceneObjects.sinogramRangeEndSourceDetector, self.ui.showSinogramOnSensorCheckbox.checkState())
 
         except Exception as e:
             print(traceback.format_exc())
@@ -846,6 +881,23 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 item = self.ui.roiListWidget.item(row)
                 itemData: ROIData = item.data(qt.Qt.UserRole)
                 itemData.roi_node.GetMarkupsDisplayNode().Visibility3DOff()
+
+    def showROISinogramRangeSourceDetectorStateChanged(self, state: int):
+        visible = state == qt.Qt.Checked
+        qt.QSettings().setValue(SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST_SOURCE_DETECTOR, visible)
+        if self.ui.roiListWidget.currentRow != -1:
+            item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
+            itemData: ROIData = item.data(qt.Qt.UserRole)
+            if self.sceneObjects.sinogramRangeStartSourceDetector.sensorModelImage.GetPointData().GetScalars() == None:
+                slice_data = self.fetchSinogramSliceFast(itemData.sinogram_start_index)
+                tex_data = (np.iinfo(np.uint8).max * (slice_data - self.sampleData.sinogram_min_value) / (self.sampleData.sinogram_max_value - self.sampleData.sinogram_min_value)).astype(np.uint8)
+                self.setSensorImageData(self.sceneObjects.sinogramRangeStartSourceDetector, tex_data)
+            if self.sceneObjects.sinogramRangeEndSourceDetector.sensorModelImage.GetPointData().GetScalars() == None:
+                slice_data = self.fetchSinogramSliceFast(itemData.sinogram_end_index)
+                tex_data = (np.iinfo(np.uint8).max * (slice_data - self.sampleData.sinogram_min_value) / (self.sampleData.sinogram_max_value - self.sampleData.sinogram_min_value)).astype(np.uint8)
+                self.setSensorImageData(self.sceneObjects.sinogramRangeStartSourceDetector, tex_data)
+        self.setSourceDetectorVisible(self.sceneObjects.sinogramRangeStartSourceDetector, visible)
+        self.setSourceDetectorVisible(self.sceneObjects.sinogramRangeEndSourceDetector, visible)
 
     class QListWidgetItemModifiedDelegate(qt.QStyledItemDelegate):
         def __init__(self, parent):
@@ -1311,8 +1363,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         if self.ui.roiListWidget.currentRow == -1:
             return
         
-        
-
         item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
         itemData: ROIData = item.data(qt.Qt.UserRole)
         roiNode = itemData.roi_node
@@ -1501,6 +1551,22 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         save.triggered.connect(lambda _: self.saveROIToFile(itemData, self._getSampleDirectory()))
         menu.addAction(save)
 
+        def openInFolder(_):
+            if itemData.original_path != None:
+                slicer.packaging.pip_ensure("show-in-file-manager==1.1.6", requester="SinoReconsVisual2")
+                from showinfm.showinfm import show_in_file_manager
+                print(str(itemData.original_path))
+                show_in_file_manager("file://" + str(itemData.original_path))
+
+        openFolder = qt.QAction("Open containing folder", menu)
+        # FIXME: show-in-file-manager is broken on windows when installed with slicer.packaging.pip_ensure
+        # So we disable this action on windows.
+        # See: https://github.com/damonlynch/showinfilemanager/issues/39
+        # - Julius Häger 2026-05-19
+        openFolder.enabled = itemData.original_path != None and sys.platform != 'win32'
+        openFolder.triggered.connect(openInFolder)
+        menu.addAction(openFolder)
+
         menu.addSeparator()
 
         resetChanges = qt.QAction("Discard changes", menu)
@@ -1532,45 +1598,53 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         sceneObjects = Vtk3DSceneObjects()
         #print(slicer.mrmlScene)
 
-        sceneObjects.sourceModel = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", "Source")
-        polys = vtk.vtkPolyData()
-        polys.SetPoints(vtk.vtkPoints())
-        polys.SetVerts(vtk.vtkCellArray())
-        sceneObjects.sourceModel.SetAndObservePolyData(polys)
-        sceneObjects.sourceModelDisplay = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
-        sceneObjects.sourceModel.SetAndObserveDisplayNodeID(sceneObjects.sourceModelDisplay.GetID())
-        sceneObjects.sourceModelDisplay.SetColor((1.0, 1.0, 0.0))
-        sceneObjects.sourceModelDisplay.SetPointSize(8)
-        sceneObjects.sourceModelDisplay.SetVisibility(1)
+        def createSourceDetectorObjects(name_prefix: str) -> SourceDetectorObjects:
+            sourceDetector = SourceDetectorObjects()
 
-        sceneObjects.fovRaysModel = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", "FOVRays")
-        polys = vtk.vtkPolyData()
-        polys.SetPoints(vtk.vtkPoints())
-        polys.SetLines(vtk.vtkCellArray())
-        sceneObjects.fovRaysModel.SetAndObservePolyData(polys)
-        sceneObjects.fovRaysModelDisplay = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
-        sceneObjects.fovRaysModel.SetAndObserveDisplayNodeID(sceneObjects.fovRaysModelDisplay.GetID())
-        sceneObjects.fovRaysModelDisplay.SetColor((0.0, 1.0, 0.0))
-        sceneObjects.fovRaysModelDisplay.SetLineWidth(2)
-        sceneObjects.fovRaysModelDisplay.SetVisibility(1)
+            sourceDetector.sourceModel = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", name_prefix + "Source")
+            polys = vtk.vtkPolyData()
+            polys.SetPoints(vtk.vtkPoints())
+            polys.SetVerts(vtk.vtkCellArray())
+            sourceDetector.sourceModel.SetAndObservePolyData(polys)
+            sourceDetector.sourceModelDisplay = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
+            sourceDetector.sourceModel.SetAndObserveDisplayNodeID(sourceDetector.sourceModelDisplay.GetID())
+            sourceDetector.sourceModelDisplay.SetColor((1.0, 1.0, 0.0))
+            sourceDetector.sourceModelDisplay.SetPointSize(8)
+            sourceDetector.sourceModelDisplay.SetVisibility(1)
 
-        sceneObjects.sensorModel = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", "Detector")
-        polys = vtk.vtkPolyData()
-        polys.SetPoints(vtk.vtkPoints())
-        polys.SetPolys(vtk.vtkCellArray())
-        sceneObjects.sensorModel.SetAndObservePolyData(polys)
-        sceneObjects.sensorModelDisplay = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
-        sceneObjects.sensorModel.SetAndObserveDisplayNodeID(sceneObjects.sensorModelDisplay.GetID())
-        sceneObjects.sensorModelDisplay.SetColor((1.0, 0.5, 0.0))
-        sceneObjects.sensorModelDisplay.SetOpacity(0.7)
-        sceneObjects.sensorModelDisplay.SetVisibility(1)
-        sceneObjects.sensorModelDisplay.SetRepresentation(slicer.vtkMRMLDisplayNode.SurfaceRepresentation)
-        sceneObjects.sensorModelDisplay.SetEdgeVisibility(False)      # Hide edges
-        sceneObjects.sensorModelDisplay.SetLighting(0)                # Disable lighting
-        sceneObjects.sensorModelDisplay.SetBackfaceCulling(False)     # Render both sides
-        sceneObjects.sensorModelImage = vtk.vtkImageData()
-        sceneObjects.sensorModelImageProducer = vtk.vtkTrivialProducer()
-        sceneObjects.sensorModelImageProducer.SetOutput(sceneObjects.sensorModelImage)
+            sourceDetector.fovRaysModel = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", name_prefix + "FOVRays")
+            polys = vtk.vtkPolyData()
+            polys.SetPoints(vtk.vtkPoints())
+            polys.SetLines(vtk.vtkCellArray())
+            sourceDetector.fovRaysModel.SetAndObservePolyData(polys)
+            sourceDetector.fovRaysModelDisplay = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
+            sourceDetector.fovRaysModel.SetAndObserveDisplayNodeID(sourceDetector.fovRaysModelDisplay.GetID())
+            sourceDetector.fovRaysModelDisplay.SetColor((0.0, 1.0, 0.0))
+            sourceDetector.fovRaysModelDisplay.SetLineWidth(2)
+            sourceDetector.fovRaysModelDisplay.SetVisibility(1)
+
+            sourceDetector.sensorModel = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", name_prefix + "Detector")
+            polys = vtk.vtkPolyData()
+            polys.SetPoints(vtk.vtkPoints())
+            polys.SetPolys(vtk.vtkCellArray())
+            sourceDetector.sensorModel.SetAndObservePolyData(polys)
+            sourceDetector.sensorModelDisplay = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
+            sourceDetector.sensorModel.SetAndObserveDisplayNodeID(sourceDetector.sensorModelDisplay.GetID())
+            sourceDetector.sensorModelDisplay.SetColor((1.0, 0.5, 0.0))
+            sourceDetector.sensorModelDisplay.SetOpacity(0.7)
+            sourceDetector.sensorModelDisplay.SetVisibility(1)
+            sourceDetector.sensorModelDisplay.SetRepresentation(slicer.vtkMRMLDisplayNode.SurfaceRepresentation)
+            sourceDetector.sensorModelDisplay.SetEdgeVisibility(False)      # Hide edges
+            sourceDetector.sensorModelDisplay.SetLighting(0)                # Disable lighting
+            sourceDetector.sensorModelDisplay.SetBackfaceCulling(False)     # Render both sides
+            sourceDetector.sensorModelImage = vtk.vtkImageData()
+            sourceDetector.sensorModelImageProducer = vtk.vtkTrivialProducer()
+            sourceDetector.sensorModelImageProducer.SetOutput(sourceDetector.sensorModelImage)
+
+            return sourceDetector
+
+
+        sceneObjects.sourceDetectorObjects = createSourceDetectorObjects("")
 
         sceneObjects.trajectoryModel = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", "Trajectory")
         polys = vtk.vtkPolyData()
@@ -1592,9 +1666,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         #sceneObjects.reconCubeModelDisplay.Visibility2DOff()
         sceneObjects.reconCubeModelDisplay.SetVisibility(1)
 
-        yellowViewNodeID = slicer.app.layoutManager().sliceWidget("Yellow").mrmlSliceNode().GetID()
+        grayViewNodeID = slicer.app.layoutManager().sliceWidget("Gray").mrmlSliceNode().GetID()
 
-        # For the sinogram outline we project a cube outline to the slice only in the Yellow view.
+        # For the sinogram outline we project a cube outline to the slice only in the Gray view.
         # - Julius Häger 2026-03-27
         sceneObjects.sinogramOutline = vtk.vtkOutlineSource()
         sceneObjects.sinogramOutline.SetBounds(-3, 3, 0, 50, 0, 50)
@@ -1602,7 +1676,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         sceneObjects.sinogramOutlineNode.SetPolyDataConnection(sceneObjects.sinogramOutline.GetOutputPort())
         sceneObjects.sinogramOutlineDisplay = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
         sceneObjects.sinogramOutlineNode.SetAndObserveDisplayNodeID(sceneObjects.sinogramOutlineDisplay.GetID())
-        sceneObjects.sinogramOutlineDisplay.SetViewNodeIDs([yellowViewNodeID])
+        sceneObjects.sinogramOutlineDisplay.SetViewNodeIDs([grayViewNodeID])
         sceneObjects.sinogramOutlineDisplay.SetSliceDisplayModeToProjection()
         sceneObjects.sinogramOutlineDisplay.Visibility3DOff()
         sceneObjects.sinogramOutlineDisplay.Visibility2DOn()
@@ -1619,6 +1693,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         sceneObjects.roiSinogramRangeModelDisplay.SetPointSize(8)
         sceneObjects.roiSinogramRangeModelDisplay.SetVisibility(1)
 
+        sceneObjects.sinogramRangeStartSourceDetector = createSourceDetectorObjects("Sinogram range start ")
+        sceneObjects.sinogramRangeEndSourceDetector = createSourceDetectorObjects("Sinogram range end ")
+
         sceneObjects.roiSinogramTrajectoryModel = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", "ROI Sinogram Trajectory")
         polys = vtk.vtkPolyData()
         polys.SetPoints(vtk.vtkPoints())
@@ -1633,13 +1710,23 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         return sceneObjects
 
     def destroySceneObjects(self):
+        def destroySourceDetectorObjects(sourceDetector: SourceDetectorObjects):
+            slicer.mrmlScene.RemoveNode(sourceDetector.sourceModelDisplay)
+            slicer.mrmlScene.RemoveNode(sourceDetector.sourceModel)
+            slicer.mrmlScene.RemoveNode(sourceDetector.fovRaysModelDisplay)
+            slicer.mrmlScene.RemoveNode(sourceDetector.fovRaysModel)
+            slicer.mrmlScene.RemoveNode(sourceDetector.sensorModelDisplay)
+            slicer.mrmlScene.RemoveNode(sourceDetector.sensorModel)
+            # FIXME: Delete the image?
+            sourceDetector.sourceModelDisplay = None
+            sourceDetector.sourceModel = None
+            sourceDetector.fovRaysModelDisplay = None
+            sourceDetector.fovRaysModel = None
+            sourceDetector.sensorModelDisplay = None
+            sourceDetector.sensorModel = None
+
         if (hasattr(self, 'sceneObjects')) and self.sceneObjects:
-            slicer.mrmlScene.RemoveNode(self.sceneObjects.sourceModelDisplay)
-            slicer.mrmlScene.RemoveNode(self.sceneObjects.sourceModel)
-            slicer.mrmlScene.RemoveNode(self.sceneObjects.fovRaysModelDisplay)
-            slicer.mrmlScene.RemoveNode(self.sceneObjects.fovRaysModel)
-            slicer.mrmlScene.RemoveNode(self.sceneObjects.sensorModelDisplay)
-            slicer.mrmlScene.RemoveNode(self.sceneObjects.sensorModel)
+            destroySourceDetectorObjects(self.sceneObjects.sourceDetectorObjects)
             slicer.mrmlScene.RemoveNode(self.sceneObjects.trajectoryModelDisplay)
             slicer.mrmlScene.RemoveNode(self.sceneObjects.trajectoryModel)
             slicer.mrmlScene.RemoveNode(self.sceneObjects.reconCubeModelDisplay)
@@ -1648,14 +1735,10 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             slicer.mrmlScene.RemoveNode(self.sceneObjects.sinogramOutlineNode)
             slicer.mrmlScene.RemoveNode(self.sceneObjects.roiSinogramRangeModelDisplay)
             slicer.mrmlScene.RemoveNode(self.sceneObjects.roiSinogramRangeModel)
+            destroySourceDetectorObjects(self.sceneObjects.sinogramRangeStartSourceDetector)
+            destroySourceDetectorObjects(self.sceneObjects.sinogramRangeEndSourceDetector)
             slicer.mrmlScene.RemoveNode(self.sceneObjects.roiSinogramTrajectoryModelDisplay)
             slicer.mrmlScene.RemoveNode(self.sceneObjects.roiSinogramTrajectoryModel)
-            self.sceneObjects.sourceModelDisplay = None
-            self.sceneObjects.sourceModel = None
-            self.sceneObjects.fovRaysModelDisplay = None
-            self.sceneObjects.fovRaysModel = None
-            self.sceneObjects.sensorModelDisplay = None
-            self.sceneObjects.sensorModel = None
             self.sceneObjects.trajectoryModelDisplay = None
             self.sceneObjects.trajectoryModel = None
             self.sceneObjects.reconCubeModelDisplay = None
@@ -1670,9 +1753,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
     def updateSceneData(self, index: int):
         self.updateTrajectory()
         self.updateReconstructionBounds()
-        self.updateSource(index)
-        self.updateFOVLines(index)
-        self.updateSensorGeometry(index)
+        self.updateSourceDetector(self.sceneObjects.sourceDetectorObjects, index)
 
     def updateTrajectory(self):
         trajectory = self.sampleData.geometry.get("full_trajectory", np.empty(0))
@@ -1703,96 +1784,106 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
         self.sceneObjects.reconOutline.SetBounds(REC_MIN_X, REC_MAX_X, REC_MIN_Y, REC_MAX_Y, REC_MIN_Z, REC_MAX_Z)
 
-    def updateSource(self, index: int):
-        sources = self.sampleData.geometry.get("sources", np.empty(0))
-        source = sources[index].reshape(1, 3)
-        #print(f"sources {source.shape} {source.dtype} {len(source)}")
+    def updateSourceDetector(self, sourceDetector: SourceDetectorObjects, index: int):
+        def updateSource(index: int):
+            sources = self.sampleData.geometry.get("sources", np.empty(0))
+            source = sources[index].reshape(1, 3)
+            #print(f"sources {source.shape} {source.dtype} {len(source)}")
 
-        polyData : vtk.vtkPolyData = typing.cast(vtk.vtkPolyData, self.sceneObjects.sourceModel.GetPolyData())
-        
-        points = typing.cast(vtk.vtkPoints, polyData.GetPoints())
-        points.SetData(numpy_to_vtk(source, 1))
-        #print(points)
+            polyData : vtk.vtkPolyData = typing.cast(vtk.vtkPolyData, sourceDetector.sourceModel.GetPolyData())
+            
+            points = typing.cast(vtk.vtkPoints, polyData.GetPoints())
+            points.SetData(numpy_to_vtk(source, 1))
+            #print(points)
 
-        cells = polyData.GetVerts()
-        idx = numpy_to_vtkIdTypeArray(np.arange(len(source)), 1)
-        cells.SetData(len(source), idx)
-        #print(cells)
+            cells = polyData.GetVerts()
+            idx = numpy_to_vtkIdTypeArray(np.arange(len(source)), 1)
+            cells.SetData(len(source), idx)
+            #print(cells)
 
-        points.Modified()
-        cells.Modified()
-        polyData.Modified()
-        #print(polyData)
+            points.Modified()
+            cells.Modified()
+            polyData.Modified()
+            #print(polyData)
 
-    def updateFOVLines(self, index: int):
-        rays = self.sampleData.geometry.get("fov_rays", np.empty(0))
-        rays = rays[index]
-        if rays.shape[-1] != 3 or rays.shape[-2] != 2:
-            print(f"[ERROR] fov_rays had the wrong shape {rays.shape}, expected (N, 2, 3).")
-            return
-        
-        polyData : vtk.vtkPolyData = typing.cast(vtk.vtkPolyData, self.sceneObjects.fovRaysModel.GetPolyData())
-        
-        points = typing.cast(vtk.vtkPoints, polyData.GetPoints())
-        points.SetData(numpy_to_vtk(np.array(rays).reshape(len(rays)*2, 3), 1))
-        #print(points)
+        def updateFOVLines(index: int):
+            rays = self.sampleData.geometry.get("fov_rays", np.empty(0))
+            rays = rays[index]
+            if rays.shape[-1] != 3 or rays.shape[-2] != 2:
+                print(f"[ERROR] fov_rays had the wrong shape {rays.shape}, expected (N, 2, 3).")
+                return
+            
+            polyData : vtk.vtkPolyData = typing.cast(vtk.vtkPolyData, sourceDetector.fovRaysModel.GetPolyData())
+            
+            points = typing.cast(vtk.vtkPoints, polyData.GetPoints())
+            points.SetData(numpy_to_vtk(np.array(rays).reshape(len(rays)*2, 3), 1))
+            #print(points)
 
-        cells = polyData.GetLines()
-        cells.SetData(2, numpy_to_vtkIdTypeArray(np.arange(len(rays)*2), 1))
-        #print(cells)
+            cells = polyData.GetLines()
+            cells.SetData(2, numpy_to_vtkIdTypeArray(np.arange(len(rays)*2), 1))
+            #print(cells)
 
-        points.Modified()
-        cells.Modified()
-        polyData.Modified()
+            points.Modified()
+            cells.Modified()
+            polyData.Modified()
 
-    def updateSensorGeometry(self, index: int):
-        bezier_curves = self.sampleData.geometry.get("bezier_curves", np.empty(0))
-        bezier_curves_uvs = self.sampleData.geometry.get("bezier_curves_uvs", np.empty(0))
-        curves = np.array(bezier_curves[index])
-        curve_uvs = np.array(bezier_curves_uvs)
+        def updateSensorGeometry(index: int):
+            bezier_curves = self.sampleData.geometry.get("bezier_curves", np.empty(0))
+            bezier_curves_uvs = self.sampleData.geometry.get("bezier_curves_uvs", np.empty(0))
+            curves = np.array(bezier_curves[index])
+            curve_uvs = np.array(bezier_curves_uvs)
 
-        num_rows = len(curves)
-        num_cols = len(curves[0])
-        if any(len(row) != num_cols for row in curves):
-            print("[ERROR] Inconsistent number of points per curve row.")
-            return
-        
-        if len(curve_uvs) != num_rows or any(len(row) != num_cols for row in curve_uvs):
-            print("[ERROR] Inconsistent number of points per curve uv row.")
-            return
-        #print(f"sensor {num_rows} {num_cols} {curves.shape}")
-        
-        def idx(i: int, j: int):
-            return i * num_cols + j
+            num_rows = len(curves)
+            num_cols = len(curves[0])
+            if any(len(row) != num_cols for row in curves):
+                print("[ERROR] Inconsistent number of points per curve row.")
+                return
+            
+            if len(curve_uvs) != num_rows or any(len(row) != num_cols for row in curve_uvs):
+                print("[ERROR] Inconsistent number of points per curve uv row.")
+                return
+            #print(f"sensor {num_rows} {num_cols} {curves.shape}")
+            
+            def idx(i: int, j: int):
+                return i * num_cols + j
 
-        indices = np.zeros((num_rows - 1, num_cols - 1, 4), dtype=np.int64)
-        for i in range(num_rows - 1):
-            for j in range(num_cols - 1):
-                indices[i, j, 0] = idx(i, j)
-                indices[i, j, 1] = idx(i, j + 1)
-                indices[i, j, 2] = idx(i + 1, j + 1)
-                indices[i, j, 3] = idx(i + 1, j)
+            indices = np.zeros((num_rows - 1, num_cols - 1, 4), dtype=np.int64)
+            for i in range(num_rows - 1):
+                for j in range(num_cols - 1):
+                    indices[i, j, 0] = idx(i, j)
+                    indices[i, j, 1] = idx(i, j + 1)
+                    indices[i, j, 2] = idx(i + 1, j + 1)
+                    indices[i, j, 3] = idx(i + 1, j)
 
-        polyData : vtk.vtkPolyData = typing.cast(vtk.vtkPolyData, self.sceneObjects.sensorModel.GetPolyData())
-        
-        points = typing.cast(vtk.vtkPoints, polyData.GetPoints())
-        points.SetData(numpy_to_vtk(curves.reshape(num_rows * num_cols, 3), 1))
-        #print(points)
+            polyData : vtk.vtkPolyData = typing.cast(vtk.vtkPolyData, sourceDetector.sensorModel.GetPolyData())
+            
+            points = typing.cast(vtk.vtkPoints, polyData.GetPoints())
+            points.SetData(numpy_to_vtk(curves.reshape(num_rows * num_cols, 3), 1))
+            #print(points)
 
-        pointData = polyData.GetPointData()
-        pointData.SetTCoords(numpy_to_vtk(curve_uvs.reshape(num_rows * num_cols, 2), 1))
-        #print(pointData)
+            pointData = polyData.GetPointData()
+            pointData.SetTCoords(numpy_to_vtk(curve_uvs.reshape(num_rows * num_cols, 2), 1))
+            #print(pointData)
 
-        cells = polyData.GetPolys()
-        cells.SetData(4, numpy_to_vtkIdTypeArray(np.ravel(indices), 1))
-        #print(cells)
+            cells = polyData.GetPolys()
+            cells.SetData(4, numpy_to_vtkIdTypeArray(np.ravel(indices), 1))
+            #print(cells)
 
-        points.Modified()
-        pointData.Modified()
-        cells.Modified()
-        polyData.Modified()
+            points.Modified()
+            pointData.Modified()
+            cells.Modified()
+            polyData.Modified()
 
-        #print(polyData)
+            #print(polyData)
+
+        updateSource(index)
+        updateFOVLines(index)
+        updateSensorGeometry(index)
+
+    def setSourceDetectorVisible(self, sourceDetector: SourceDetectorObjects, visible: bool):
+        sourceDetector.sourceModelDisplay.SetVisibility(1 if visible else 0)
+        sourceDetector.fovRaysModelDisplay.SetVisibility(1 if visible else 0)
+        sourceDetector.sensorModelDisplay.SetVisibility(1 if visible else 0)
 
     def updateRoiSinogramRange(self, start_index: int, end_index: int, is_visible: bool):
         if is_visible:
@@ -1830,26 +1921,64 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             cells.Modified()
             polyData.Modified()
 
+            self.updateSourceDetector(self.sceneObjects.sinogramRangeStartSourceDetector, start_index)
+            self.updateSourceDetector(self.sceneObjects.sinogramRangeEndSourceDetector, end_index)
+
+            if self.ui.showROISinogramRangeSourceDetectorCheckBox.checked:
+                # FIXME: only fetch if the current index has actually changed!
+                start_slice_data = self.fetchSinogramSliceFast(start_index)
+                end_slice_data = self.fetchSinogramSliceFast(end_index)
+                
+                start = time.time()
+                start_tex_data = (np.iinfo(np.uint8).max * (start_slice_data - self.sampleData.sinogram_min_value) / (self.sampleData.sinogram_max_value - self.sampleData.sinogram_min_value)).astype(np.uint8)
+                end_tex_data = (np.iinfo(np.uint8).max * (end_slice_data - self.sampleData.sinogram_min_value) / (self.sampleData.sinogram_max_value - self.sampleData.sinogram_min_value)).astype(np.uint8)
+
+                self.setSensorImageData(self.sceneObjects.sinogramRangeStartSourceDetector, start_tex_data)
+                self.setSensorImageData(self.sceneObjects.sinogramRangeEndSourceDetector, end_tex_data)
+                end = time.time()
+                print(f"[DEBUG] Updating sinogram range sensor texture took: {end - start} s")
+
+        self.setSourceDetectorVisible(self.sceneObjects.sinogramRangeStartSourceDetector, is_visible)
+        self.setSourceDetectorVisible(self.sceneObjects.sinogramRangeEndSourceDetector, is_visible)
+
         self.sceneObjects.roiSinogramRangeModelDisplay.SetVisibility(1 if is_visible else 0)
         self.sceneObjects.roiSinogramTrajectoryModelDisplay.SetVisibility(1 if is_visible else 0)
 
-
-    def setImageOnSensor(self, state : int):
+    def showSourceDetectorStateChanged(self, state: int):
         if hasattr(self, "sceneObjects") == False or self.sceneObjects == None:
             return
-        
-        print(f"show on sensor: {state}")
-        if state == qt.Qt.Checked:
-            qt.QSettings().setValue(SETTINGS_KEY_SHOW_SINOGRAM_ON_SENSOR, True)
-            self.sceneObjects.sensorModelDisplay.SetTextureImageDataConnection(self.sceneObjects.sensorModelImageProducer.GetOutputPort())
-            self.sceneObjects.sensorModelDisplay.SetOpacity(1.0)
-            self.sceneObjects.sensorModelDisplay.SetInterpolation(slicer.vtkMRMLDisplayNode.FlatInterpolation)
-            self.sceneObjects.sensorModelDisplay.SetScalarRangeFlag(slicer.vtkMRMLDisplayNode.UseDataScalarRange) # Data range = auto
+        show = state == qt.Qt.Checked
+        qt.QSettings().setValue(SETTINGS_KEY_SHOW_SOURCE_DETECTOR, show)
+        self.setSourceDetectorVisible(self.sceneObjects.sourceDetectorObjects, show)
+
+    def showSinogramOnSensorStateChanged(self, state: int):
+        if hasattr(self, "sceneObjects") == False or self.sceneObjects == None:
+            return
+        print(f"show on sensor changed: {state}")
+        show = state == qt.Qt.Checked
+        qt.QSettings().setValue(SETTINGS_KEY_SHOW_SINOGRAM_ON_SENSOR, show)
+        self.setImageOnSensor(self.sceneObjects.sourceDetectorObjects, show)
+        self.setImageOnSensor(self.sceneObjects.sinogramRangeStartSourceDetector, show)
+        self.setImageOnSensor(self.sceneObjects.sinogramRangeEndSourceDetector, show)
+
+
+    def setImageOnSensor(self, sourceDetector: SourceDetectorObjects, show: bool):
+        if show:
+            sourceDetector.sensorModelDisplay.SetTextureImageDataConnection(sourceDetector.sensorModelImageProducer.GetOutputPort())
+            sourceDetector.sensorModelDisplay.SetOpacity(1.0)
+            sourceDetector.sensorModelDisplay.SetInterpolation(slicer.vtkMRMLDisplayNode.FlatInterpolation)
+            sourceDetector.sensorModelDisplay.SetScalarRangeFlag(slicer.vtkMRMLDisplayNode.UseDataScalarRange) # Data range = auto
         else:
-            qt.QSettings().setValue(SETTINGS_KEY_SHOW_SINOGRAM_ON_SENSOR, False)
-            self.sceneObjects.sensorModelDisplay.SetTextureImageDataConnection(None)
-            self.sceneObjects.sensorModelDisplay.SetOpacity(0.7)
-            self.sceneObjects.sensorModelDisplay.SetInterpolation(slicer.vtkMRMLDisplayNode.PhongInterpolation)
+            sourceDetector.sensorModelDisplay.SetTextureImageDataConnection(None)
+            sourceDetector.sensorModelDisplay.SetOpacity(0.7)
+            sourceDetector.sensorModelDisplay.SetInterpolation(slicer.vtkMRMLDisplayNode.PhongInterpolation)
+
+    def setSensorImageData(self, sourceDetector: SourceDetectorObjects, tex_data: np.typing.NDArray[np.uint8]):
+        sourceDetector.sensorModelImage.SetDimensions(tex_data.shape[1], tex_data.shape[0], 1)
+        # FIXME: Do not allocate a new VTK arrray, update the existing one if possible!
+        vtk_array = numpy_to_vtk(tex_data.reshape(tex_data.shape[0] * tex_data.shape[1], 1), 1, vtk.VTK_UNSIGNED_CHAR)
+        #print(vtk_array)
+        sourceDetector.sensorModelImage.GetPointData().SetScalars(vtk_array)
 
     # -----------------------------
     # Slider / sinogram fetch
@@ -1869,35 +1998,16 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
     def loadPreviewSlice(self):
         try:
-            index = self.currentIndex
-            base = self._currentBaseUrl()
-
-            start = time.time()
-            response_fast = self.session.get(f"{base}/get_sinogram_slice_fast/{index}")
-            end = time.time()
-            print(f"[DEBUG] Download (fast) took {end-start} s {len(response_fast.content)/1000} kb")
-
-            if response_fast.status_code >= 400:
-                print(f"Failed to load sinogram slice: {response_fast.headers}")
-
-            sliceMin = np.float32(response_fast.headers["slice_min"])
-            sliceMax = np.float32(response_fast.headers["slice_max"])
-
-            start = time.time()
-            img = PIL.Image.open(io.BytesIO(response_fast.content))
-            img_data = np.array(img)
-            img_data_mapped = img_data * ((sliceMax - sliceMin) / np.float32(255.0)) + sliceMin
-            end = time.time()
-            print(f"[DEBUG] Decoding image took {end-start} s {img.size} {img.mode} {img_data_mapped.shape} {img_data_mapped.dtype}")
+            sliceData = self.fetchSinogramSliceFast(self.currentIndex)
 
             start = time.time()
             if hasattr(self, 'volume_node') and self.volume_node:
                 voxel_data = slicer.util.arrayFromVolume(self.volume_node)
                 #print(f"voxel_data shape: {voxel_data.shape} {voxel_data.dtype}")
-                voxel_data[:,:,0] = img_data_mapped
+                voxel_data[:,:,0] = sliceData
                 slicer.util.arrayFromVolumeModified(self.volume_node)
             else:
-                self.volume_node = slicer.util.addVolumeFromArray(img_data_mapped[:, :, np.newaxis])
+                self.volume_node = slicer.util.addVolumeFromArray(sliceData[:, :, np.newaxis])
                 self.volume_node.name = f"Preview sinogram"
 
             self.volume_node.GetDisplayNode().SetAutoWindowLevel(False)
@@ -1913,23 +2023,16 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             print(f"[DEBUG] Adding/modifying volume took: {end - start} s")
 
             start = time.time()
-            tex_data = (np.iinfo(np.uint8).max * (img_data_mapped - self.sampleData.sinogram_min_value) / (self.sampleData.sinogram_max_value - self.sampleData.sinogram_min_value)).astype(np.uint8)
+            tex_data = (np.iinfo(np.uint8).max * (sliceData - self.sampleData.sinogram_min_value) / (self.sampleData.sinogram_max_value - self.sampleData.sinogram_min_value)).astype(np.uint8)
             # FIXME: Do we need to flip here? What is the correct way to show this?
             # Alternatively the UV coordinates on the sensor geometry is "wrong"...
             #tex_data = np.flip(tex_data, axis=1)
-
-            self.sceneObjects.sensorModelImage.SetDimensions(tex_data.shape[1], tex_data.shape[0], 1)
-            # FIXME: Do not allocate a new VTK arrray, update the existing one if possible!
-            vtk_array = numpy_to_vtk(tex_data.reshape(tex_data.shape[0] * tex_data.shape[1], 1), 1, vtk.VTK_UNSIGNED_CHAR)
-            #print(vtk_array)
-            self.sceneObjects.sensorModelImage.GetPointData().SetScalars(vtk_array)
+            self.setSensorImageData(self.sceneObjects.sourceDetectorObjects, tex_data)
             end = time.time()
             print(f"[DEBUG] Updating sensor texture took: {end - start} s")
-
+            
             if self.volume_node:
-                for view in ["Red", "Green", "Yellow"]:
-                    slicer.app.layoutManager().sliceWidget(view).sliceLogic().GetSliceCompositeNode().SetBackgroundVolumeID(self.volume_node.GetID())
-                slicer.app.layoutManager().resetSliceViews()
+                slicer.app.layoutManager().sliceWidget("Gray").sliceLogic().GetSliceCompositeNode().SetBackgroundVolumeID(self.volume_node.GetID())
             else:
                 slicer.util.errorDisplay("Failed to load sinogram slice.")
 
@@ -1939,6 +2042,28 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             #print(e)
             print(traceback.format_exc())
             #slicer.util.errorDisplay(f"Error fetching sinogram slice: {e} {traceback.format_exc()}")
+
+    def fetchSinogramSliceFast(self, index: int) -> np.typing.NDArray[np.float32]:
+        base = self._currentBaseUrl()
+
+        start = time.time()
+        response_fast = self.session.get(f"{base}/get_sinogram_slice_fast/{index}")
+        end = time.time()
+        print(f"[DEBUG] Download (fast) took {end-start} s {len(response_fast.content)/1000} kb")
+
+        if response_fast.status_code >= 400:
+            print(f"Failed to load sinogram slice: {response_fast.headers}")
+
+        sliceMin = np.float32(response_fast.headers["slice_min"])
+        sliceMax = np.float32(response_fast.headers["slice_max"])
+
+        start = time.time()
+        img = PIL.Image.open(io.BytesIO(response_fast.content))
+        img_data = np.array(img)
+        img_data_mapped = img_data * ((sliceMax - sliceMin) / np.float32(255.0)) + sliceMin
+        end = time.time()
+        print(f"[DEBUG] Decoding image took {end-start} s {img.size} {img.mode} {img_data_mapped.shape} {img_data_mapped.dtype}")
+        return img_data_mapped
 
     def loadFullDetailSlice(self):
         try:
@@ -2003,9 +2128,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             print(f"[DEBUG] Adding/modifying volume took: {end - start} s")
 
             if self.full_detail_volume_node:
-                for view in ["Red", "Green", "Yellow"]:
-                    slicer.app.layoutManager().sliceWidget(view).sliceLogic().GetSliceCompositeNode().SetBackgroundVolumeID(self.full_detail_volume_node.GetID())
-                slicer.app.layoutManager().resetSliceViews()
+                slicer.app.layoutManager().sliceWidget("Gray").sliceLogic().GetSliceCompositeNode().SetBackgroundVolumeID(self.full_detail_volume_node.GetID())
             else:
                 slicer.util.errorDisplay("Failed to load sinogram slice.")
 
@@ -2064,9 +2187,7 @@ def stream_nrrd_from_url(filename, base_url: Optional[str] = None, progress_dial
 
         volume_node = slicer.util.loadVolume(temp_file_path)
         if volume_node:
-            for view in ["Red", "Green", "Yellow"]:
-                slicer.app.layoutManager().sliceWidget(view).sliceLogic().GetSliceCompositeNode().SetBackgroundVolumeID(volume_node.GetID())
-            slicer.app.layoutManager().resetSliceViews()
+            slicer.app.layoutManager().sliceWidget("Gray").sliceLogic().GetSliceCompositeNode().SetBackgroundVolumeID(volume_node.GetID())
         else:
             print("Failed to load the NRRD volume.")
 

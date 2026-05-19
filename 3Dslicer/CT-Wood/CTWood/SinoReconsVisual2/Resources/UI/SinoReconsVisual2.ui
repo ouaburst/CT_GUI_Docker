@@ -32,7 +32,7 @@
          <x>0</x>
          <y>0</y>
          <width>694</width>
-         <height>1492</height>
+         <height>1548</height>
         </rect>
        </property>
        <property name="sizePolicy">
@@ -306,13 +306,23 @@
                  <bool>false</bool>
                 </property>
                 <layout class="QGridLayout" name="visualizationSettingsLayout">
-                 <item row="0" column="0">
+                 <item row="1" column="0">
                   <widget class="QCheckBox" name="showSinogramOnSensorCheckbox">
                    <property name="toolTip">
                     <string>Whether or not to show the sinogram on the sensor geometry in the 3D view.</string>
                    </property>
                    <property name="text">
                     <string>Show sinogram on sensor</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="0" column="0">
+                  <widget class="QCheckBox" name="showSourceDetectorCheckBox">
+                   <property name="text">
+                    <string>Show source and detector</string>
+                   </property>
+                   <property name="checked">
+                    <bool>true</bool>
                    </property>
                   </widget>
                  </item>
@@ -478,6 +488,16 @@
                 </property>
                 <property name="tristate">
                  <bool>false</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QCheckBox" name="showROISinogramRangeSourceDetectorCheckBox">
+                <property name="text">
+                 <string>Show sinogram range source and detector</string>
+                </property>
+                <property name="checked">
+                 <bool>true</bool>
                 </property>
                </widget>
               </item>

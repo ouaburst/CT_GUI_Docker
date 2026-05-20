@@ -875,15 +875,15 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.ui.roiListWidget.setCurrentRow(-1)
 
             # Load first frame
-            self.onIndexChanged(0)
-            slicer.app.layoutManager().sliceWidget("Gray").sliceController().fitSliceToBackground()
-
+            self.onIndexChanged(0, synchronous=True)
+            slicer.app.layoutManager().sliceWidget("Gray").fitSliceToBackground()
+            
             self.setImageOnSensor(self.sceneObjects.sourceDetectorObjects, self.ui.showSinogramOnSensorCheckbox.checkState())
             self.setSourceDetectorVisible(self.sceneObjects.sourceDetectorObjects, self.ui.showSourceDetectorCheckBox.checked)
 
             self.setImageOnSensor(self.sceneObjects.sinogramRangeStartSourceDetector, self.ui.showSinogramOnSensorCheckbox.checkState())
             self.setImageOnSensor(self.sceneObjects.sinogramRangeEndSourceDetector, self.ui.showSinogramOnSensorCheckbox.checkState())
-
+            
         except Exception as e:
             print(traceback.format_exc())
             slicer.util.errorDisplay(f"Failed to load full dataset:\n{e}")
@@ -1585,17 +1585,26 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
         def openInFolder(_):
             if itemData.original_path != None:
-                slicer.packaging.pip_ensure("show-in-file-manager==1.1.6", requester="SinoReconsVisual2")
-                from showinfm.showinfm import show_in_file_manager
-                print(str(itemData.original_path))
-                show_in_file_manager("file://" + str(itemData.original_path))
+                # FIXME: show-in-file-manager is broken on windows when installed with slicer.packaging.pip_ensure
+                # So we disable this action on windows.
+                # See: https://github.com/damonlynch/showinfilemanager/issues/39
+                # - Julius Häger 2026-05-19
+                if sys.platform == 'win32':
+                    import pathvalidate, subprocess
+                    try:
+                        pathvalidate.validate_filepath(itemData.original_path, platform=pathvalidate.Platform.WINDOWS)
+                        subprocess.Popen(["C:\\Windows\\explorer.exe", str(itemData.original_path.parent)], shell=True)
+                    except pathvalidate.ValidationError as e:
+                        logging.warning(f"Invalid path {e} can't open folder")
+                        return
+                else:
+                    slicer.packaging.pip_ensure("show-in-file-manager==1.1.6", requester="SinoReconsVisual2")
+                    from showinfm.showinfm import show_in_file_manager
+                    print(str(itemData.original_path))
+                    show_in_file_manager("file://" + str(itemData.original_path))
 
         openFolder = qt.QAction("Open containing folder", menu)
-        # FIXME: show-in-file-manager is broken on windows when installed with slicer.packaging.pip_ensure
-        # So we disable this action on windows.
-        # See: https://github.com/damonlynch/showinfilemanager/issues/39
-        # - Julius Häger 2026-05-19
-        openFolder.enabled = itemData.original_path != None and sys.platform != 'win32'
+        openFolder.enabled = itemData.original_path != None
         openFolder.triggered.connect(openInFolder)
         menu.addAction(openFolder)
 
@@ -2030,12 +2039,12 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
     # -----------------------------
     # Slider / sinogram fetch
     # -----------------------------
-    def onIndexChanged(self, value):
+    def onIndexChanged(self, value, synchronous = False):
         start = time.time()
         self.currentIndex = value
         self.ui.sliderIndexLabel.setText(f"Index: {value}")
         self.updateSceneData(value)
-        if self.playButtonTimer.isActive():
+        if self.playButtonTimer.isActive() or synchronous:
             self.loadPreviewSlice()
         else:
             self.sliderDebounceTimer.start()

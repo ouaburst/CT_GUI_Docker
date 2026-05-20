@@ -9,34 +9,100 @@ from slicer.util import VTKObservationMixin
 
 class SinoReconsVisual2SettingsPanel(qt.QObject):
 
-    @property
-    def selectedROIColor(self) -> tuple[float,float,float]:
-        return (1.0, 0.0, 0.0)
-
-    @property
-    def selectedROIOpacity(self) -> float:
-        return 1.0
-    
-    @property
-    def unselectedROIColor(self) -> tuple[float,float,float]:
-        return (0.1, 0.1, 0.1)
-
-    @property
-    def unselectedROIOpacity(self) -> float:
-        return 0.2
-
-    def __init__(self, settingsPanel: ctk.ctkSettingsPanel):
+    def __init__(self, settingsPanel: ctk.ctkSettingsPanel, mainWidget):
         super().__init__(settingsPanel)
         self.settingsPanel = settingsPanel
+        self.ui = slicer.util.childWidgetVariables(settingsPanel)
 
+        self.ui.sourceTrajectoryColorPickerButton.colorChanged.connect(mainWidget.sourceTrajectoryColorChanged)
         self.settingsPanel.registerProperty(
-            "SinoReconsVisual2/ROI/SelectedColor",
-            self,
-            "selectedROIColor",
-            b"selectedROIColorChanged(double,double,double)",
+            "SinoReconsVisual2/TrajectoryColor",
+            self.ui.sourceTrajectoryColorPickerButton,
+            "color",
+            # I couldn't find a SIGNAL macro equivalent in pythonqt - Julius Häger 2026-05-20
+            b"2colorChanged(QColor)\0",
             _("Selected Color")
             )
         
-    @qt.Slot(float,float,float)
-    def selectedROIColorChanged(self,r,g,b):
-        print("roi color", r, g, b)
+        self.ui.sourceColorPickerButton.colorChanged.connect(mainWidget.sourceColorChanged)
+        self.settingsPanel.registerProperty(
+            "SinoReconsVisual2/SourceColor",
+            self.ui.sourceColorPickerButton,
+            "color",
+            # I couldn't find a SIGNAL macro equivalent in pythonqt - Julius Häger 2026-05-20
+            b"2colorChanged(QColor)\0",
+            _("Source Color")
+            )
+        
+        self.ui.detectorColorPickerButton.colorChanged.connect(mainWidget.detectorColorChanged)
+        self.settingsPanel.registerProperty(
+            "SinoReconsVisual2/DetectorColor",
+            self.ui.detectorColorPickerButton,
+            "color",
+            # I couldn't find a SIGNAL macro equivalent in pythonqt - Julius Häger 2026-05-20
+            b"2colorChanged(QColor)\0",
+            _("Detector Color")
+            )
+        
+        self.ui.fovRaysColorPickerButton.colorChanged.connect(mainWidget.fovRaysColorChanged)
+        self.settingsPanel.registerProperty(
+            "SinoReconsVisual2/FOVRayColor",
+            self.ui.fovRaysColorPickerButton,
+            "color",
+            # I couldn't find a SIGNAL macro equivalent in pythonqt - Julius Häger 2026-05-20
+            b"2colorChanged(QColor)\0",
+            _("Field of View Ray Color")
+            )
+        
+        self.ui.boundsColorPickerButton.colorChanged.connect(mainWidget.boundsColorChanged)
+        self.settingsPanel.registerProperty(
+            "SinoReconsVisual2/BoundsColor",
+            self.ui.boundsColorPickerButton,
+            "color",
+            # I couldn't find a SIGNAL macro equivalent in pythonqt - Julius Häger 2026-05-20
+            b"2colorChanged(QColor)\0",
+            _("Bounds Color")
+            )
+        
+        self.ui.sinogramOutlineColorPickerButton.colorChanged.connect(mainWidget.sinogramOutlineColorChanged)
+        self.settingsPanel.registerProperty(
+            "SinoReconsVisual2/SinogramOutlineColor",
+            self.ui.sinogramOutlineColorPickerButton,
+            "color",
+            # I couldn't find a SIGNAL macro equivalent in pythonqt - Julius Häger 2026-05-20
+            b"2colorChanged(QColor)\0",
+            _("Sinogram Outline Color")
+            )
+
+        self.ui.selectedROIColorPickerButton.colorChanged.connect(mainWidget.selectedROIColorChanged)
+        self.settingsPanel.registerProperty(
+            "SinoReconsVisual2/ROI/SelectedColor",
+            self.ui.selectedROIColorPickerButton,
+            "color",
+            # I couldn't find a SIGNAL macro equivalent in pythonqt - Julius Häger 2026-05-20
+            b"2colorChanged(QColor)\0",
+            _("Selected Color")
+            )
+        
+        self.ui.inactiveROIColorPickerButton.colorChanged.connect(mainWidget.inactiveROIColorChanged)
+        self.settingsPanel.registerProperty(
+            "SinoReconsVisual2/ROI/InactiveColor",
+            self.ui.inactiveROIColorPickerButton,
+            "color",
+            # I couldn't find a SIGNAL macro equivalent in pythonqt - Julius Häger 2026-05-20
+            b"2colorChanged(QColor)\0",
+            _("Inactive Color")
+            )
+        
+        self.ui.roiSinogramRangeColorPickerButton.colorChanged.connect(mainWidget.roiSinogramRangeColorChanged)
+        self.settingsPanel.registerProperty(
+            "SinoReconsVisual2/ROI/SinogramRangeColor",
+            self.ui.roiSinogramRangeColorPickerButton,
+            "color",
+            # I couldn't find a SIGNAL macro equivalent in pythonqt - Julius Häger 2026-05-20
+            b"2colorChanged(QColor)\0",
+            _("Sinogram Range Color")
+            )
+        
+        self.settingsPanel.settingChanged.connect(lambda k, v: print(f"settings changed! {k} = {v}"))
+

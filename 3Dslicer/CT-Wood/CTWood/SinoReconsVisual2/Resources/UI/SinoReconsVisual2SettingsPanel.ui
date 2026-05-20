@@ -13,8 +13,152 @@
   <property name="windowTitle">
    <string>Form</string>
   </property>
-  <layout class="QFormLayout" name="formLayout_3">
-   <item row="1" column="0" colspan="2">
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <widget class="ctkCollapsibleGroupBox" name="uiSettingsBox">
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
+     <property name="title">
+      <string>UI</string>
+     </property>
+     <layout class="QFormLayout" name="formLayout">
+      <item row="0" column="0">
+       <widget class="QLabel" name="sourceTrajectoryLabel">
+        <property name="text">
+         <string>Source trajectory:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="ctkColorPickerButton" name="sourceTrajectoryColorPickerButton">
+        <property name="color">
+         <color>
+          <red>90</red>
+          <green>92</green>
+          <blue>193</blue>
+         </color>
+        </property>
+        <property name="dialogOptions">
+         <set>ctkColorPickerButton::ShowAlphaChannel</set>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="sourceLabel">
+        <property name="text">
+         <string>Source:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="ctkColorPickerButton" name="sourceColorPickerButton">
+        <property name="color">
+         <color>
+          <red>255</red>
+          <green>234</green>
+          <blue>117</blue>
+         </color>
+        </property>
+        <property name="dialogOptions">
+         <set>ctkColorPickerButton::ShowAlphaChannel</set>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="detectorLabel">
+        <property name="text">
+         <string>Detector:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="ctkColorPickerButton" name="detectorColorPickerButton">
+        <property name="color">
+         <color alpha="178">
+          <red>255</red>
+          <green>152</green>
+          <blue>35</blue>
+         </color>
+        </property>
+        <property name="dialogOptions">
+         <set>ctkColorPickerButton::ShowAlphaChannel</set>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="0">
+       <widget class="QLabel" name="fovRaysLabel">
+        <property name="text">
+         <string>FOV rays:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="1">
+       <widget class="ctkColorPickerButton" name="fovRaysColorPickerButton">
+        <property name="color">
+         <color>
+          <red>223</red>
+          <green>198</green>
+          <blue>98</blue>
+         </color>
+        </property>
+        <property name="dialogOptions">
+         <set>ctkColorPickerButton::ShowAlphaChannel</set>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="0">
+       <widget class="QLabel" name="boundsLabel">
+        <property name="text">
+         <string>Bounds:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="1">
+       <widget class="ctkColorPickerButton" name="boundsColorPickerButton">
+        <property name="color">
+         <color>
+          <red>255</red>
+          <green>0</green>
+          <blue>255</blue>
+         </color>
+        </property>
+        <property name="dialogOptions">
+         <set>ctkColorPickerButton::ShowAlphaChannel</set>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="0">
+       <widget class="QLabel" name="sinogramOutlineLabel">
+        <property name="text">
+         <string>Sinogram outline:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="1">
+       <widget class="ctkColorPickerButton" name="sinogramOutlineColorPickerButton">
+        <property name="text">
+         <string>Sinogram outline:</string>
+        </property>
+        <property name="color">
+         <color>
+          <red>160</red>
+          <green>160</green>
+          <blue>160</blue>
+         </color>
+        </property>
+        <property name="dialogOptions">
+         <set>ctkColorPickerButton::ShowAlphaChannel</set>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
     <widget class="ctkCollapsibleGroupBox" name="roiSettingsBox">
      <property name="sizePolicy">
       <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
@@ -26,9 +170,6 @@
       <string>Region of Interest</string>
      </property>
      <layout class="QFormLayout" name="formLayout_2">
-      <property name="sizeConstraint">
-       <enum>QLayout::SetDefaultConstraint</enum>
-      </property>
       <item row="0" column="0">
        <widget class="QLabel" name="selectedROILabel">
         <property name="text">
@@ -48,10 +189,10 @@
          <string>Selected ROI</string>
         </property>
         <property name="color">
-         <color>
+         <color alpha="150">
           <red>255</red>
-          <green>0</green>
-          <blue>0</blue>
+          <green>26</green>
+          <blue>26</blue>
          </color>
         </property>
         <property name="dialogOptions">
@@ -89,119 +230,29 @@
         </property>
        </widget>
       </item>
-     </layout>
-    </widget>
-   </item>
-   <item row="0" column="0" colspan="2">
-    <widget class="ctkCollapsibleGroupBox" name="uiSettingsBox">
-     <property name="sizePolicy">
-      <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
-       <horstretch>0</horstretch>
-       <verstretch>0</verstretch>
-      </sizepolicy>
-     </property>
-     <property name="title">
-      <string>UI</string>
-     </property>
-     <layout class="QFormLayout" name="formLayout">
-      <item row="0" column="0">
-       <widget class="QLabel" name="sourceTrajectoryLabel">
-        <property name="text">
-         <string>Source trajectory:</string>
-        </property>
-       </widget>
-      </item>
-      <item row="1" column="0">
-       <widget class="QLabel" name="sourceLabel">
-        <property name="text">
-         <string>Source:</string>
-        </property>
-       </widget>
-      </item>
-      <item row="1" column="1">
-       <widget class="ctkColorPickerButton" name="sourceColorPickerButton">
-        <property name="color">
-         <color>
-          <red>255</red>
-          <green>255</green>
-          <blue>0</blue>
-         </color>
-        </property>
-        <property name="dialogOptions">
-         <set>ctkColorPickerButton::ShowAlphaChannel</set>
-        </property>
-       </widget>
-      </item>
       <item row="2" column="0">
-       <widget class="QLabel" name="detectorLabel">
+       <widget class="QLabel" name="roiSinogramRangeLabel">
         <property name="text">
-         <string>Detector:</string>
+         <string>Sinogram range color:</string>
         </property>
        </widget>
       </item>
       <item row="2" column="1">
-       <widget class="ctkColorPickerButton" name="detectorColorPickerButton">
+       <widget class="ctkColorPickerButton" name="roiSinogramRangeColorPickerButton">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+        <property name="text">
+         <string>Selected ROI</string>
+        </property>
         <property name="color">
          <color>
           <red>255</red>
-          <green>127</green>
-          <blue>0</blue>
-         </color>
-        </property>
-        <property name="dialogOptions">
-         <set>ctkColorPickerButton::ShowAlphaChannel</set>
-        </property>
-       </widget>
-      </item>
-      <item row="3" column="0">
-       <widget class="QLabel" name="fovRaysLabel">
-        <property name="text">
-         <string>FOV rays:</string>
-        </property>
-       </widget>
-      </item>
-      <item row="3" column="1">
-       <widget class="ctkColorPickerButton" name="fovRaysColorPickerButton">
-        <property name="color">
-         <color>
-          <red>0</red>
-          <green>255</green>
-          <blue>0</blue>
-         </color>
-        </property>
-        <property name="dialogOptions">
-         <set>ctkColorPickerButton::ShowAlphaChannel</set>
-        </property>
-       </widget>
-      </item>
-      <item row="4" column="0">
-       <widget class="QLabel" name="boundsLabel">
-        <property name="text">
-         <string>Bounds:</string>
-        </property>
-       </widget>
-      </item>
-      <item row="4" column="1">
-       <widget class="ctkColorPickerButton" name="boundsColorPickerButton">
-        <property name="color">
-         <color>
-          <red>255</red>
-          <green>0</green>
-          <blue>255</blue>
-         </color>
-        </property>
-        <property name="dialogOptions">
-         <set>ctkColorPickerButton::ShowAlphaChannel</set>
-        </property>
-       </widget>
-      </item>
-      <item row="0" column="1">
-       <widget class="ctkColorPickerButton" name="sourceTrajectoryColorPickerButton">
-        <property name="color">
-         <color>
-          <red>0</red>
-          <green>102</green>
-          <blue>255</blue>
+          <green>201</green>
+          <blue>74</blue>
          </color>
         </property>
         <property name="dialogOptions">

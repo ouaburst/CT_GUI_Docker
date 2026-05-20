@@ -32,7 +32,7 @@ from slicer.i18n import translate
 from slicer.ScriptedLoadableModule import *
 from slicer.util import VTKObservationMixin
 
-from settings import SinoReconsVisual2SettingsPanel
+from settings.SinoReconsVisual2SettingsPanel import SinoReconsVisual2SettingsPanel
 
 class VersionNotSupportedError(Exception):
     def __init__(self, message, version) -> None:
@@ -43,20 +43,12 @@ class VersionNotSupportedError(Exception):
 # Settings helpers
 # -----------------------------
 SETTINGS_KEY_BACKEND_URL = "SinoReconsVisual2/BackendUrl"
-DEFAULT_BACKEND_URL = "http://127.0.0.1:8000"
+DEFAULT_BACKEND_URL = "http://b9398.research.ltu.se:8000"
 
 SETTINGS_KEY_SHOW_SOURCE_DETECTOR = "SinoReconsVisual2/ShowSourceDetector"
 SETTINGS_KEY_SHOW_SINOGRAM_ON_SENSOR = "SinoReconsVisual2/ShowSinogramOnSensor"
 SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST = "SinoReconsVisual2/ShowRegionsOfInterest"
 SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST_SOURCE_DETECTOR = "SinoReconsVisual2/ShowRegionsOfInterestSinogramRangeSourceDetector"
-
-def get_saved_base_url() -> str:
-    """Return the persisted backend base URL or default."""
-    return qt.QSettings().value(SETTINGS_KEY_BACKEND_URL, DEFAULT_BACKEND_URL)
-
-def set_saved_base_url(url: str) -> None:
-    """Persist the backend base URL."""
-    qt.QSettings().setValue(SETTINGS_KEY_BACKEND_URL, url)
 
 def normalize_base_url(url: str) -> str:
     """Trim spaces and trailing slashes; add http:// if missing scheme."""
@@ -242,13 +234,33 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         # - Julius Häger 2026-05-13
         qt.QIcon.setThemeName("light")
 
-        # FIXME: There is no way to remove a settings panel once it has been added...
-        # So either we accept that we can't reload the settings panel, or
-        # we figure out a way to make reloading the settings possible?
-        # - Julius Häger 2026-05-13
-        #self.test = SinoReconsVisual2SettingsPanel(slicer.util.loadUI(self.resourcePath("UI/SinoReconsVisual2SettingsPanel.ui")))
-        #slicer.app.settingsDialog().addPanel("SinoReconsVisual2", qt.QIcon(os.path.join(get_icons_folder(), "SinoReconsVisual2_v2.svg")), self.test.settingsPanel)
-        #print(slicer.app.settingsDialog().currentPanel())
+        # This is a workaround for ctkSettingsDialog not having a removePanel() function.
+        # I've opened a PR to add one here: https://github.com/commontk/CTK/pull/1423
+        # If we can't call removePanel() then we just add a button to the module UI
+        # so that you can still open the settings UI.
+        # - Julius Häger 2026-05-19
+        
+        self.settingsUI = SinoReconsVisual2SettingsPanel(slicer.util.loadUI(self.resourcePath("UI/SinoReconsVisual2SettingsPanel.ui")), self)
+        print(type(slicer.app.settingsDialog()))
+        if hasattr(slicer.app.settingsDialog(), 'removePanel'):
+            self.settings = qt.QSettings()
+            slicer.app.settingsDialog().addPanel("SinoReconsVisual2", qt.QIcon(os.path.join(get_icons_folder(), "SinoReconsVisual2_v2.svg")), self.settingsUI.settingsPanel)
+        else:
+            # The "Restore Defaults" button in the settings dialog will reset *all* of the settings in the QSettings object associated with that dialog
+            # So for this custom settings dialog we can't reuse the default qt.QSettings() object as that would reset *all* slicer settings.
+            # To solve this we create our own settings object for the case where we can't add our settings panel to the default settings dialog.
+            # - Julius Häger 2026-05-20
+            self.settings = qt.QSettings("SinoReconsVisual2", "SinoReconsVisual2")
+
+            self.settingsDialog = ctk.ctkSettingsDialog()
+            self.settingsDialog.resetButton = True
+            self.settingsDialog.settings = self.settings
+            self.settingsDialog.addPanel("SinoReconsVisual2", qt.QIcon(os.path.join(get_icons_folder(), "SinoReconsVisual2_v2.svg")), self.settingsUI.settingsPanel)
+
+            settingsButton = qt.QPushButton()
+            settingsButton.text = "Settings"
+            settingsButton.clicked.connect(lambda x: self.settingsDialog.exec())
+            self.layout.addWidget(settingsButton)
 
         # Load and attach UI
         uiWidget = slicer.util.loadUI(self.resourcePath("UI/SinoReconsVisual2.ui"))
@@ -257,9 +269,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
         self.registerSinogramLayout()
 
-        # Initialize saved backend URL into the line edit (new field in UI)
-        if hasattr(self.ui, "serverUrlLineEdit") and self.ui.serverUrlLineEdit is not None:
-            self.ui.serverUrlLineEdit.setText(get_saved_base_url())
+        self.ui.serverUrlLineEdit.setText(self.settings.value(SETTINGS_KEY_BACKEND_URL, DEFAULT_BACKEND_URL))
 
         # Initialize window size
         self.windowSize = 1
@@ -282,10 +292,10 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.ui.reconstructionMethodComboBox.currentTextChanged.connect(self.onReconstructionMethodChanged)
 
         self.ui.showSourceDetectorCheckBox.stateChanged.connect(self.showSourceDetectorStateChanged)
-        self.ui.showSourceDetectorCheckBox.setChecked(qt.QSettings().value(SETTINGS_KEY_SHOW_SOURCE_DETECTOR, True))
+        self.ui.showSourceDetectorCheckBox.setChecked(self.settings.value(SETTINGS_KEY_SHOW_SOURCE_DETECTOR, True))
 
         self.ui.showSinogramOnSensorCheckbox.stateChanged.connect(self.showSinogramOnSensorStateChanged)
-        self.ui.showSinogramOnSensorCheckbox.setChecked(qt.QSettings().value(SETTINGS_KEY_SHOW_SINOGRAM_ON_SENSOR, False))
+        self.ui.showSinogramOnSensorCheckbox.setChecked(self.settings.value(SETTINGS_KEY_SHOW_SINOGRAM_ON_SENSOR, False))
 
         self.ui.playButton.toggled.connect(self.playButtonToggled)
         self.ui.playSpeedSlider.valueChanged.connect(lambda x : self.ui.playSpeedLabel.setText(f"Speed: x{x}"))
@@ -311,10 +321,10 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.sceneObjects = self.createSceneObjects()
 
         self.ui.showROICheckbox.stateChanged.connect(self.showROIs)
-        self.ui.showROICheckbox.setChecked(qt.QSettings().value(SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST, False))
+        self.ui.showROICheckbox.setChecked(self.settings.value(SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST, False))
 
         self.ui.showROISinogramRangeSourceDetectorCheckBox.stateChanged.connect(self.showROISinogramRangeSourceDetectorStateChanged)
-        self.ui.showROISinogramRangeSourceDetectorCheckBox.setChecked(qt.QSettings().value(SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST_SOURCE_DETECTOR, True))
+        self.ui.showROISinogramRangeSourceDetectorCheckBox.setChecked(self.settings.value(SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST_SOURCE_DETECTOR, True))
 
         if not self.ui.roiCenterCoordinateWidget.connect("coordinatesChanged(double, double, double, double)", self.roiCenterChanged):
             self.ui.roiCenterCoordinateWidget.coordinatesChanged.connect(self.roiCenterChangedOld)
@@ -324,6 +334,12 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.ui.roiResolutionCoordinateWidget.coordinatesChanged.connect(self.roiResolutionChangedOld)
         
         self.ui.sinogramRangeWidget.valuesChanged.connect(self.roiSinogramValuesChanged)
+        color = self.settings.value("SinoReconsVisual2/ROI/SinogramRangeColor")
+        palette = self.ui.sinogramRangeWidget.palette
+        palette.setColor(qt.QPalette.Normal, qt.QPalette.Highlight, color)
+        palette.setColor(qt.QPalette.Inactive, qt.QPalette.Highlight, color)
+        palette.setColor(qt.QPalette.Disabled, qt.QPalette.Highlight, qt.QColor.fromRgbF(color.redF()*0.55, color.greenF()*0.55, color.blueF()*0.55))
+        self.ui.sinogramRangeWidget.palette = palette
 
         self.ui.addROIButton.clicked.connect(self.addNewROIClicked)
         self.ui.removeROIButton.clicked.connect(self.removeROIClicked)
@@ -426,6 +442,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             layoutSwitchAction.setToolTip("3D and sinogram view")
 
     def cleanup(self):
+        if hasattr(slicer.app.settingsDialog(), 'removePanel'):
+            slicer.app.settingsDialog().removePanel(self.settingsUI.settingsPanel)
+
         if hasattr(self, 'interactor_observer_tag'):
             interactor = slicer.app.layoutManager().threeDWidget(0).threeDView().interactor()
             interactor.RemoveObserver(self.interactor_observer_tag)
@@ -444,8 +463,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
     def onReload(self):
         import importlib
-        import settings
+        import settings.SinoReconsVisual2SettingsPanel
         importlib.reload(settings)
+        importlib.reload(settings.SinoReconsVisual2SettingsPanel)
         ScriptedLoadableModuleWidget.onReload(self)
 
     # -----------------------------
@@ -457,13 +477,13 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             entered = self.ui.serverUrlLineEdit.text
             base = normalize_base_url(entered)
             # Persist any change immediately so other actions use it
-            set_saved_base_url(base)
+            self.settings.setValue(SETTINGS_KEY_BACKEND_URL, base)
             # Keep UI clean/normalized
             if entered != base and self.ui.serverUrlLineEdit.text != base:
                 self.ui.serverUrlLineEdit.setText(base)
             return base
         # Fallback to settings
-        return normalize_base_url(get_saved_base_url())
+        return normalize_base_url(self.settings.value(SETTINGS_KEY_BACKEND_URL, DEFAULT_BACKEND_URL))
 
     # -----------------------------
     # UI reactions
@@ -870,13 +890,13 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
     def showROIs(self, state : int):
         if state == qt.Qt.Checked:
-            qt.QSettings().setValue(SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST, True)
+            self.settings.setValue(SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST, True)
             for row in range(self.ui.roiListWidget.count):
                 item = self.ui.roiListWidget.item(row)
                 itemData: ROIData = item.data(qt.Qt.UserRole)
                 itemData.roi_node.GetMarkupsDisplayNode().Visibility3DOn()
         else:
-            qt.QSettings().setValue(SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST, False)
+            self.settings.setValue(SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST, False)
             for row in range(self.ui.roiListWidget.count):
                 item = self.ui.roiListWidget.item(row)
                 itemData: ROIData = item.data(qt.Qt.UserRole)
@@ -884,7 +904,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
     def showROISinogramRangeSourceDetectorStateChanged(self, state: int):
         visible = state == qt.Qt.Checked
-        qt.QSettings().setValue(SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST_SOURCE_DETECTOR, visible)
+        self.settings.setValue(SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST_SOURCE_DETECTOR, visible)
         if self.ui.roiListWidget.currentRow != -1:
             item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
             itemData: ROIData = item.data(qt.Qt.UserRole)
@@ -1147,21 +1167,33 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         roiNode = itemData.roi_node
         roiDisplayNode = roiNode.GetMarkupsDisplayNode()
         if enable:
-            roiDisplayNode.SetSelectedColor(1.0, 0.0, 0.0)
+            # slicer is weird with their color naming scheme
+            # SelectedColor is the default color for ROIs
+            # Color is the unselected color which is seemingly unused
+            # ActiveColor is the color that shows when the user hovers the ROI
+            # - Julius Häger 2026-05-20
+            color = self.settings.value("SinoReconsVisual2/ROI/SelectedColor")
+            roiDisplayNode.SetSelectedColor(color.redF(), color.greenF(), color.blueF())
+            roiDisplayNode.SetActiveColor(color.redF(), color.greenF(), color.blueF())
+            roiDisplayNode.SetFillOpacity(color.alphaF() * 0.8) # FIXME: Separate setting for this?
+            roiDisplayNode.SetOutlineOpacity(color.alphaF())
+
             roiDisplayNode.SetHandlesInteractive(True)
-            roiDisplayNode.SetFillOpacity(0.5)
-            roiDisplayNode.SetOutlineOpacity(0.8)
             roiDisplayNode.SetTranslationHandleVisibility(False)
             roiDisplayNode.SetScaleHandleVisibility(True)
+
+            print(f"selectable: {roiDisplayNode.GetSelectable()} selected {roiDisplayNode.GetSelected()}")
 
             for i in range(roiNode.GetNumberOfControlPoints()):
                 roiNode.SetNthControlPointVisibility(i, True)
         else:
-            roiDisplayNode.SetSelectedColor(0.1, 0.1, 0.1)
+            color = self.settings.value("SinoReconsVisual2/ROI/InactiveColor")
+            roiDisplayNode.SetSelectedColor(color.redF(), color.greenF(), color.blueF())
+            roiDisplayNode.SetActiveColor(color.redF(), color.greenF(), color.blueF())
+            roiDisplayNode.SetFillOpacity(color.alphaF() * 0.8) # FIXME: Separate setting for this?
+            roiDisplayNode.SetOutlineOpacity(color.alphaF())
+
             roiDisplayNode.SetHandlesInteractive(False)
-            roiDisplayNode.SetFillOpacity(0.1)
-            roiDisplayNode.SetOutlineOpacity(0.2)
-            
             
             for i in range(roiNode.GetNumberOfControlPoints()):
                 roiNode.SetNthControlPointVisibility(i, False)
@@ -1596,7 +1628,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
     # -----------------------------
     def createSceneObjects(self):
         sceneObjects = Vtk3DSceneObjects()
-        #print(slicer.mrmlScene)
 
         def createSourceDetectorObjects(name_prefix: str) -> SourceDetectorObjects:
             sourceDetector = SourceDetectorObjects()
@@ -1608,9 +1639,11 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             sourceDetector.sourceModel.SetAndObservePolyData(polys)
             sourceDetector.sourceModelDisplay = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
             sourceDetector.sourceModel.SetAndObserveDisplayNodeID(sourceDetector.sourceModelDisplay.GetID())
-            sourceDetector.sourceModelDisplay.SetColor((1.0, 1.0, 0.0))
             sourceDetector.sourceModelDisplay.SetPointSize(8)
             sourceDetector.sourceModelDisplay.SetVisibility(1)
+            color = self.settings.value("SinoReconsVisual2/SourceColor")
+            sourceDetector.sourceModelDisplay.SetColor((color.redF(), color.greenF(), color.blueF()))
+            sourceDetector.sourceModelDisplay.SetOpacity(color.alphaF())
 
             sourceDetector.fovRaysModel = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", name_prefix + "FOVRays")
             polys = vtk.vtkPolyData()
@@ -1619,9 +1652,11 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             sourceDetector.fovRaysModel.SetAndObservePolyData(polys)
             sourceDetector.fovRaysModelDisplay = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
             sourceDetector.fovRaysModel.SetAndObserveDisplayNodeID(sourceDetector.fovRaysModelDisplay.GetID())
-            sourceDetector.fovRaysModelDisplay.SetColor((0.0, 1.0, 0.0))
             sourceDetector.fovRaysModelDisplay.SetLineWidth(2)
             sourceDetector.fovRaysModelDisplay.SetVisibility(1)
+            color = self.settings.value("SinoReconsVisual2/FOVRayColor")
+            sourceDetector.fovRaysModelDisplay.SetColor((color.redF(), color.greenF(), color.blueF()))
+            sourceDetector.fovRaysModelDisplay.SetOpacity(color.alphaF())
 
             sourceDetector.sensorModel = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", name_prefix + "Detector")
             polys = vtk.vtkPolyData()
@@ -1630,8 +1665,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             sourceDetector.sensorModel.SetAndObservePolyData(polys)
             sourceDetector.sensorModelDisplay = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
             sourceDetector.sensorModel.SetAndObserveDisplayNodeID(sourceDetector.sensorModelDisplay.GetID())
-            sourceDetector.sensorModelDisplay.SetColor((1.0, 0.5, 0.0))
-            sourceDetector.sensorModelDisplay.SetOpacity(0.7)
             sourceDetector.sensorModelDisplay.SetVisibility(1)
             sourceDetector.sensorModelDisplay.SetRepresentation(slicer.vtkMRMLDisplayNode.SurfaceRepresentation)
             sourceDetector.sensorModelDisplay.SetEdgeVisibility(False)      # Hide edges
@@ -1640,9 +1673,11 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             sourceDetector.sensorModelImage = vtk.vtkImageData()
             sourceDetector.sensorModelImageProducer = vtk.vtkTrivialProducer()
             sourceDetector.sensorModelImageProducer.SetOutput(sourceDetector.sensorModelImage)
+            color = self.settings.value("SinoReconsVisual2/DetectorColor")
+            sourceDetector.sensorModelDisplay.SetColor((color.redF(), color.greenF(), color.blueF()))
+            sourceDetector.sensorModelDisplay.SetOpacity(color.alphaF())
 
             return sourceDetector
-
 
         sceneObjects.sourceDetectorObjects = createSourceDetectorObjects("")
 
@@ -1653,18 +1688,22 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         sceneObjects.trajectoryModel.SetAndObservePolyData(polys)
         sceneObjects.trajectoryModelDisplay = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
         sceneObjects.trajectoryModel.SetAndObserveDisplayNodeID(sceneObjects.trajectoryModelDisplay.GetID())
-        sceneObjects.trajectoryModelDisplay.SetColor((0.0, 0.4, 1.0))
         sceneObjects.trajectoryModelDisplay.SetLineWidth(2)
         sceneObjects.trajectoryModelDisplay.SetVisibility(1)
+        color = self.settings.value("SinoReconsVisual2/TrajectoryColor")
+        sceneObjects.trajectoryModelDisplay.SetColor((color.redF(), color.greenF(), color.blueF()))
+        sceneObjects.trajectoryModelDisplay.SetOpacity(color.alphaF())
 
         sceneObjects.reconCubeModel = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", "Reconstruction bounds")
         sceneObjects.reconOutline = vtk.vtkOutlineSource()
         sceneObjects.reconCubeModel.SetPolyDataConnection(sceneObjects.reconOutline.GetOutputPort())
         sceneObjects.reconCubeModelDisplay = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
         sceneObjects.reconCubeModel.SetAndObserveDisplayNodeID(sceneObjects.reconCubeModelDisplay.GetID())
-        sceneObjects.reconCubeModelDisplay.SetColor((1.0, 0.0, 1.0))
         #sceneObjects.reconCubeModelDisplay.Visibility2DOff()
         sceneObjects.reconCubeModelDisplay.SetVisibility(1)
+        color = self.settings.value("SinoReconsVisual2/BoundsColor")
+        sceneObjects.reconCubeModelDisplay.SetColor((color.redF(), color.greenF(), color.blueF()))
+        sceneObjects.reconCubeModelDisplay.SetOpacity(color.alphaF())
 
         grayViewNodeID = slicer.app.layoutManager().sliceWidget("Gray").mrmlSliceNode().GetID()
 
@@ -1681,6 +1720,10 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         sceneObjects.sinogramOutlineDisplay.Visibility3DOff()
         sceneObjects.sinogramOutlineDisplay.Visibility2DOn()
         sceneObjects.sinogramOutlineDisplay.VisibilityOff()
+        color = self.settings.value("SinoReconsVisual2/SinogramOutlineColor")
+        sceneObjects.sinogramOutlineDisplay.SetColor((color.redF(), color.greenF(), color.blueF()))
+        sceneObjects.sinogramOutlineDisplay.SetOpacity(color.alphaF())
+        # FIXME: outline color setting.
 
         sceneObjects.roiSinogramRangeModel = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", "ROI Sinogram Range")
         polys = vtk.vtkPolyData()
@@ -1689,9 +1732,11 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         sceneObjects.roiSinogramRangeModel.SetAndObservePolyData(polys)
         sceneObjects.roiSinogramRangeModelDisplay = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
         sceneObjects.roiSinogramRangeModel.SetAndObserveDisplayNodeID(sceneObjects.roiSinogramRangeModelDisplay.GetID())
-        sceneObjects.roiSinogramRangeModelDisplay.SetColor((0.5765, 0.8431, 0.8118))
         sceneObjects.roiSinogramRangeModelDisplay.SetPointSize(8)
         sceneObjects.roiSinogramRangeModelDisplay.SetVisibility(1)
+        color = self.settings.value("SinoReconsVisual2/ROI/SinogramRangeColor")
+        sceneObjects.roiSinogramRangeModelDisplay.SetColor((color.redF(), color.greenF(), color.blueF()))
+        sceneObjects.roiSinogramRangeModelDisplay.SetOpacity(color.alphaF())
 
         sceneObjects.sinogramRangeStartSourceDetector = createSourceDetectorObjects("Sinogram range start ")
         sceneObjects.sinogramRangeEndSourceDetector = createSourceDetectorObjects("Sinogram range end ")
@@ -1703,9 +1748,11 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         sceneObjects.roiSinogramTrajectoryModel.SetAndObservePolyData(polys)
         sceneObjects.roiSinogramTrajectoryModelDisplay = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
         sceneObjects.roiSinogramTrajectoryModel.SetAndObserveDisplayNodeID(sceneObjects.roiSinogramTrajectoryModelDisplay.GetID())
-        sceneObjects.roiSinogramTrajectoryModelDisplay.SetColor((0.5765, 0.8431, 0.8118))
         sceneObjects.roiSinogramTrajectoryModelDisplay.SetLineWidth(4)
         sceneObjects.roiSinogramTrajectoryModelDisplay.SetVisibility(1)
+        color = self.settings.value("SinoReconsVisual2/ROI/SinogramRangeColor")
+        sceneObjects.roiSinogramTrajectoryModelDisplay.SetColor((color.redF(), color.greenF(), color.blueF()))
+        sceneObjects.roiSinogramTrajectoryModelDisplay.SetOpacity(color.alphaF())
 
         return sceneObjects
 
@@ -1948,7 +1995,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         if hasattr(self, "sceneObjects") == False or self.sceneObjects == None:
             return
         show = state == qt.Qt.Checked
-        qt.QSettings().setValue(SETTINGS_KEY_SHOW_SOURCE_DETECTOR, show)
+        self.settings.setValue(SETTINGS_KEY_SHOW_SOURCE_DETECTOR, show)
         self.setSourceDetectorVisible(self.sceneObjects.sourceDetectorObjects, show)
 
     def showSinogramOnSensorStateChanged(self, state: int):
@@ -1956,7 +2003,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             return
         print(f"show on sensor changed: {state}")
         show = state == qt.Qt.Checked
-        qt.QSettings().setValue(SETTINGS_KEY_SHOW_SINOGRAM_ON_SENSOR, show)
+        self.settings.setValue(SETTINGS_KEY_SHOW_SINOGRAM_ON_SENSOR, show)
         self.setImageOnSensor(self.sceneObjects.sourceDetectorObjects, show)
         self.setImageOnSensor(self.sceneObjects.sinogramRangeStartSourceDetector, show)
         self.setImageOnSensor(self.sceneObjects.sinogramRangeEndSourceDetector, show)
@@ -2146,6 +2193,93 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
     def advanceSinogramSlice(self):
         self.ui.indexSlider.value += int(self.ui.playSpeedSlider.value)
+
+    # -----------------------------
+    # Settings callbacks
+    # -----------------------------
+    def sourceTrajectoryColorChanged(self, color: qt.QColor):
+        if hasattr(self, 'sceneObjects'):
+            self.sceneObjects.trajectoryModelDisplay.SetColor(color.redF(), color.greenF(), color.blueF())
+            self.sceneObjects.trajectoryModelDisplay.SetOpacity(color.alphaF())
+
+    def sourceColorChanged(self, color: qt.QColor):
+        def setSourceColor(sd: SourceDetectorObjects, color: qt.QColor):
+            sd.sourceModelDisplay.SetColor(color.redF(), color.greenF(), color.blueF())
+            sd.sourceModelDisplay.SetOpacity(color.alphaF())
+
+        if hasattr(self, 'sceneObjects'):
+            setSourceColor(self.sceneObjects.sourceDetectorObjects, color)
+            setSourceColor(self.sceneObjects.sinogramRangeStartSourceDetector, color)
+            setSourceColor(self.sceneObjects.sinogramRangeEndSourceDetector, color)
+
+    def detectorColorChanged(self, color: qt.QColor):
+        def setDetectorColor(sd: SourceDetectorObjects, color: qt.QColor):
+            sd.sensorModelDisplay.SetColor(color.redF(), color.greenF(), color.blueF())
+            sd.sensorModelDisplay.SetOpacity(color.alphaF())
+
+        if hasattr(self, 'sceneObjects'):    
+            setDetectorColor(self.sceneObjects.sourceDetectorObjects, color)
+            setDetectorColor(self.sceneObjects.sinogramRangeStartSourceDetector, color)
+            setDetectorColor(self.sceneObjects.sinogramRangeEndSourceDetector, color)
+
+    def fovRaysColorChanged(self, color: qt.QColor):
+        def setFOVRaysColor(sd: SourceDetectorObjects, color: qt.QColor):
+            sd.fovRaysModelDisplay.SetColor(color.redF(), color.greenF(), color.blueF())
+            sd.fovRaysModelDisplay.SetOpacity(color.alphaF())
+
+        if hasattr(self, 'sceneObjects'):
+            setFOVRaysColor(self.sceneObjects.sourceDetectorObjects, color)
+            setFOVRaysColor(self.sceneObjects.sinogramRangeStartSourceDetector, color)
+            setFOVRaysColor(self.sceneObjects.sinogramRangeEndSourceDetector, color)
+
+    def boundsColorChanged(self, color: qt.QColor):
+        if hasattr(self, 'sceneObjects'):
+            self.sceneObjects.reconCubeModelDisplay.SetColor(color.redF(), color.greenF(), color.blueF())
+            self.sceneObjects.reconCubeModelDisplay.SetOpacity(color.alphaF())
+
+    def sinogramOutlineColorChanged(self, color: qt.QColor):
+        if hasattr(self, 'sceneObjects'):
+            self.sceneObjects.sinogramOutlineDisplay.SetColor(color.redF(), color.greenF(), color.blueF())
+            self.sceneObjects.sinogramOutlineDisplay.SetOpacity(color.alphaF())
+
+    def selectedROIColorChanged(self, color: qt.QColor):
+        if hasattr(self, 'ui'):
+            if self.ui.roiListWidget.currentRow != -1:
+                item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
+                itemData: ROIData = item.data(qt.Qt.UserRole)
+                roiNode = itemData.roi_node
+                roiDisplayNode = roiNode.GetMarkupsDisplayNode()
+                roiDisplayNode.SetSelectedColor(color.redF(), color.greenF(), color.blueF())
+                roiDisplayNode.SetActiveColor(color.redF(), color.greenF(), color.blueF())
+                roiDisplayNode.SetFillOpacity(color.alphaF() * 0.8) # FIXME: Separate setting for this?
+                roiDisplayNode.SetOutlineOpacity(color.alphaF())
+
+    def inactiveROIColorChanged(self, color: qt.QColor):
+        if hasattr(self, 'sceneObjects'):
+            for row in range(self.ui.roiListWidget.count):
+                if row == self.ui.roiListWidget.currentRow:
+                    continue
+                item = self.ui.roiListWidget.item(row)
+                itemData: ROIData = item.data(qt.Qt.UserRole)
+                roiNode = itemData.roi_node
+                roiDisplayNode = roiNode.GetMarkupsDisplayNode()
+                roiDisplayNode.SetSelectedColor(color.redF(), color.greenF(), color.blueF())
+                roiDisplayNode.SetActiveColor(color.redF(), color.greenF(), color.blueF())
+                roiDisplayNode.SetFillOpacity(color.alphaF() * 0.8) # FIXME: Separate setting for this?
+                roiDisplayNode.SetOutlineOpacity(color.alphaF())
+
+    def roiSinogramRangeColorChanged(self, color: qt.QColor):
+        if hasattr(self, 'sceneObjects'):
+            self.sceneObjects.roiSinogramTrajectoryModelDisplay.SetColor(color.redF(), color.greenF(), color.blueF())
+            self.sceneObjects.roiSinogramTrajectoryModelDisplay.SetOpacity(color.alphaF())
+            self.sceneObjects.roiSinogramRangeModelDisplay.SetColor(color.redF(), color.greenF(), color.blueF())
+            self.sceneObjects.roiSinogramRangeModelDisplay.SetOpacity(color.alphaF())
+        if hasattr(self, 'ui'):
+            palette = self.ui.sinogramRangeWidget.palette
+            palette.setColor(qt.QPalette.Normal, qt.QPalette.Highlight, color)
+            palette.setColor(qt.QPalette.Inactive, qt.QPalette.Highlight, color)
+            palette.setColor(qt.QPalette.Disabled, qt.QPalette.Highlight, qt.QColor.fromRgbF(color.redF()*0.55, color.greenF()*0.55, color.blueF()*0.55))
+            self.ui.sinogramRangeWidget.palette = palette
 
 # -----------------------------
 # HTTP helpers (use saved base URL)

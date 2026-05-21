@@ -234,12 +234,15 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         # - Julius Häger 2026-05-13
         qt.QIcon.setThemeName("light")
 
+        # Hide the default box
+        slicer.app.layoutManager().threeDWidget(0).mrmlViewNode().SetBoxVisible(0)
+        slicer.app.layoutManager().threeDWidget(0).mrmlViewNode().SetAxisLabelsVisible(0)
+
         # This is a workaround for ctkSettingsDialog not having a removePanel() function.
         # I've opened a PR to add one here: https://github.com/commontk/CTK/pull/1423
         # If we can't call removePanel() then we just add a button to the module UI
         # so that you can still open the settings UI.
         # - Julius Häger 2026-05-19
-        
         self.settingsUI = SinoReconsVisual2SettingsPanel(slicer.util.loadUI(self.resourcePath("UI/SinoReconsVisual2SettingsPanel.ui")), self)
         print(type(slicer.app.settingsDialog()))
         if hasattr(slicer.app.settingsDialog(), 'removePanel'):
@@ -351,6 +354,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
         self.ui.roiListWidget.setContextMenuPolicy(qt.Qt.CustomContextMenu)
         self.ui.roiListWidget.customContextMenuRequested.connect(self.showROIItemContextMenu)
+
+        self.ui.reconstructionROIComboBox.currentIndexChanged.connect(self.reconstructionROIChanged)
 
         threeDView = slicer.app.layoutManager().threeDWidget(0).threeDView()
         viewNode = threeDView.mrmlViewNode()
@@ -562,42 +567,41 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         else:
             # adjoint or other single-shot methods: no extra params
             pass
-        
-        metadata = self.sampleData.metadata
+
         trajectory = self.sampleData.geometry.get("full_trajectory", np.empty(0))
-        params["REC_MIN_X"] = metadata['REC_MIN_X']
-        params["REC_MIN_Y"] = metadata["REC_MIN_Y"]
-        params["REC_MIN_Z"] = trajectory[0][2]
-        params["REC_MAX_X"] = metadata["REC_MAX_X"]
-        params["REC_MAX_Y"] = metadata["REC_MAX_Y"]
-        params["REC_MAX_Z"] = trajectory[-1][2]
-        params['SINOGRAM_MIN'] = 0
-        params['SINOGRAM_MAX'] = self.sampleData.totalSamples
-        params["REC_NPX_X"] = metadata['REC_NPX_X']
-        params["REC_NPX_Y"] = metadata['REC_NPX_Y']
-        params["REC_NPX_Z"] = int((params["REC_MAX_Z"] - params["REC_MIN_Z"]) // metadata['REC_PIC_SIZE'])
+        if self.ui.reconstructionROIComboBox.currentData != None:
+            itemData: ROIData = self.ui.reconstructionROIComboBox.currentData
+            center = np.array(itemData.roi_node.GetCenter())
+            size = np.array(itemData.roi_node.GetSize())
+            
+            min = center - (size * 0.5)
+            max = center + (size * 0.5)
 
-        if self.ui.useSelectedROICheckbox.checkState() == qt.Qt.Checked:
-            if self.ui.roiListWidget.currentRow != -1:
-                item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
-                itemData: ROIData = item.data(qt.Qt.UserRole)
-                center = np.array(itemData.roi_node.GetCenter())
-                size = np.array(itemData.roi_node.GetSize())
-                
-                min = center - (size * 0.5)
-                max = center + (size * 0.5)
-
-                params["REC_MIN_X"] = float(min[0])
-                params["REC_MIN_Y"] = float(min[1])
-                params["REC_MIN_Z"] = float(min[2])
-                params["REC_MAX_X"] = float(max[0])
-                params["REC_MAX_Y"] = float(max[1])
-                params["REC_MAX_Z"] = float(max[2])
-                params['SINOGRAM_MIN'] = itemData.sinogram_start_index
-                params['SINOGRAM_MAX'] = itemData.sinogram_end_index
-                params["REC_NPX_X"] = itemData.resolution[0]
-                params["REC_NPX_Y"] = itemData.resolution[1]
-                params["REC_NPX_Z"] = itemData.resolution[2]
+            params["REC_MIN_X"] = float(min[0])
+            params["REC_MIN_Y"] = float(min[1])
+            params["REC_MIN_Z"] = float(min[2])
+            params["REC_MAX_X"] = float(max[0])
+            params["REC_MAX_Y"] = float(max[1])
+            params["REC_MAX_Z"] = float(max[2])
+            params['SINOGRAM_MIN'] = itemData.sinogram_start_index
+            params['SINOGRAM_MAX'] = itemData.sinogram_end_index
+            params["REC_NPX_X"] = itemData.resolution[0]
+            params["REC_NPX_Y"] = itemData.resolution[1]
+            params["REC_NPX_Z"] = itemData.resolution[2]
+        else:
+            # Invalid entry or we've selected the "Whole" entry.
+            metadata = self.sampleData.metadata
+            params["REC_MIN_X"] = metadata['REC_MIN_X']
+            params["REC_MIN_Y"] = metadata["REC_MIN_Y"]
+            params["REC_MIN_Z"] = trajectory[0][2]
+            params["REC_MAX_X"] = metadata["REC_MAX_X"]
+            params["REC_MAX_Y"] = metadata["REC_MAX_Y"]
+            params["REC_MAX_Z"] = trajectory[-1][2]
+            params['SINOGRAM_MIN'] = 0
+            params['SINOGRAM_MAX'] = self.sampleData.totalSamples
+            params["REC_NPX_X"] = metadata['REC_NPX_X']
+            params["REC_NPX_Y"] = metadata['REC_NPX_Y']
+            params["REC_NPX_Z"] = int((params["REC_MAX_Z"] - params["REC_MIN_Z"]) // metadata['REC_PIC_SIZE'])
 
         params["use_cache"] = self.ui.useCacheCheckbox.checkState() == qt.Qt.Checked
 
@@ -967,6 +971,16 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             user_property = editor.metaObject().userProperty().name()
             editor.setProperty(user_property, roi_data.name)
 
+        def paint(self, painter: qt.QPainter, option: qt.QStyleOptionViewItem, index: qt.QModelIndex):
+            # In the Qt source code QListView only sets State_HasFocus if the list also has focus. See: qlistview.cpp QListView::paintEvent
+            # Which means that the highlight on the currently selected item is no longer highlighted when the list looses focus.
+            # To fix this we detect the case where the list doesn't have focus and the index we are drawing atm is the selected one
+            # and add the State_HasFocus flag to the style options.
+            # - Julius Häger 2026-05-21
+            if self.parent().focus == False and index == self.parent().selectionModel().currentIndex:
+                option.state |= qt.QStyle.State_HasFocus
+            qt.QStyledItemDelegate.paint(self, painter, option, index)
+
     def addNewROIClicked(self):
         self.addROI()
 
@@ -1057,6 +1071,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.ui.roiListWidget.setCurrentItem(roi_data.roi_list_widget)
         self.ui.roiListWidget.setItemDelegate(self.QListWidgetItemModifiedDelegate(self.ui.roiListWidget))
 
+        self.ui.reconstructionROIComboBox.addItem(roi_data.name, roi_data)
+
         roi_data.original_path = file
 
         self.roiUpdateModified(roi_data, True)
@@ -1075,6 +1091,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.roiUpdateModified(itemData, itemData._modified)
 
     def clearROIs(self):
+        self.ui.reconstructionROIComboBox.clear()
         for row in reversed(range(self.ui.roiListWidget.count)):
             item = self.ui.roiListWidget.takeItem(row)
             itemData: ROIData = item.data(qt.Qt.UserRole)
@@ -1092,6 +1109,10 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.ui.roiListWidget.takeItem(self.ui.roiListWidget.row(item))
         itemData: ROIData = item.data(qt.Qt.UserRole)
         slicer.mrmlScene.RemoveNode(itemData.roi_node)
+
+        i = self.ui.reconstructionROIComboBox.findData(itemData)
+        if i != -1:
+            self.ui.reconstructionROIComboBox.removeItem(i)
 
         if itemData.original_path != None:
             slicer.packaging.pip_ensure("Send2Trash", requester="SinoReconsVisual2")
@@ -1150,7 +1171,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.ui.sinogramRangeWidget.setValues(itemData.sinogram_start_index, itemData.sinogram_end_index)
             self.ui.sinogramRangeWidget.blockSignals(False)
             self.updateRoiSinogramRange(itemData.sinogram_start_index, itemData.sinogram_end_index, True)
-            self.updateROIMetadataLabel(itemData)
+            self.updateROIMetadataLabel(self.ui.roiMetadataLabel, itemData)
 
             self.ui.roiResolutionCoordinateWidget.enabled = not itemData.auto_resolution
 
@@ -1542,7 +1563,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
         self.ui.roiSaveButton.setEnabled(roi._modified)
 
-    def updateROIMetadataLabel(self, roi: ROIData):
+    def updateROIMetadataLabel(self, label: qt.QLabel, roi: ROIData):
         size_of_float32 = 4
         sinogram_slice_size = self.sampleData.sinogram_shape[1] * self.sampleData.sinogram_shape[2] * size_of_float32
         input_size: int = (roi.sinogram_end_index - roi.sinogram_start_index) * sinogram_slice_size
@@ -1558,7 +1579,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 n += 1
             return f"{size:.{1}f}{power_labels[n]}"
 
-        self.ui.roiMetadataLabel.text = f"Input sinogram size: {format_bytes(input_size)}, Output volume size: {format_bytes(output_size)}"
+        label.text = f"Input sinogram size: {format_bytes(input_size)}, Output volume size: {format_bytes(output_size)}"
 
     def toggleROIAutoResolution(self, roi: ROIData, enable: bool):
         if roi.auto_resolution != enable:
@@ -1631,6 +1652,11 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         menu.addAction(delete)
 
         menu.exec(self.ui.roiListWidget.mapToGlobal(pos))
+
+    def reconstructionROIChanged(self, index: int):
+        if index != -1:
+            itemData: ROIData = self.ui.reconstructionROIComboBox.itemData(index)
+            self.updateROIMetadataLabel(self.ui.reconstructionROIMetadataLabel, itemData)
 
     # -----------------------------
     # Rendering helpers
@@ -1708,8 +1734,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         sceneObjects.reconCubeModel.SetPolyDataConnection(sceneObjects.reconOutline.GetOutputPort())
         sceneObjects.reconCubeModelDisplay = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
         sceneObjects.reconCubeModel.SetAndObserveDisplayNodeID(sceneObjects.reconCubeModelDisplay.GetID())
-        #sceneObjects.reconCubeModelDisplay.Visibility2DOff()
-        sceneObjects.reconCubeModelDisplay.SetVisibility(1)
+        sceneObjects.reconCubeModelDisplay.SetVisibility(0)
         color = self.settings.value("SinoReconsVisual2/BoundsColor")
         sceneObjects.reconCubeModelDisplay.SetColor((color.redF(), color.greenF(), color.blueF()))
         sceneObjects.reconCubeModelDisplay.SetOpacity(color.alphaF())
@@ -1839,6 +1864,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         #REC_NPX_X, REC_NPX_Y, REC_NPX_Z = metadata['REC_NPX_X'], metadata['REC_NPX_Y'], int((REC_MAX_Z - REC_MIN_Z) // metadata['REC_PIC_SIZE'])
 
         self.sceneObjects.reconOutline.SetBounds(REC_MIN_X, REC_MAX_X, REC_MIN_Y, REC_MAX_Y, REC_MIN_Z, REC_MAX_Z)
+        self.sceneObjects.reconCubeModelDisplay.SetVisibility(1)
 
     def updateSourceDetector(self, sourceDetector: SourceDetectorObjects, index: int):
         def updateSource(index: int):

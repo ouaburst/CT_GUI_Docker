@@ -30,9 +30,9 @@
        <property name="geometry">
         <rect>
          <x>0</x>
-         <y>0</y>
-         <width>694</width>
-         <height>1548</height>
+         <y>-80</y>
+         <width>706</width>
+         <height>1416</height>
         </rect>
        </property>
        <property name="sizePolicy">
@@ -711,7 +711,7 @@
            <number>1</number>
           </property>
           <layout class="QFormLayout" name="formLayout">
-           <item row="0" column="0" colspan="2">
+           <item row="2" column="0" colspan="2">
             <widget class="QWidget" name="reconstructionWidget" native="true">
              <property name="enabled">
               <bool>false</bool>
@@ -729,17 +729,47 @@
               <property name="bottomMargin">
                <number>0</number>
               </property>
-              <item row="1" column="0">
+              <item row="0" column="1">
+               <widget class="ctkComboBox" name="reconstructionROIComboBox">
+                <property name="defaultText">
+                 <string>Whole</string>
+                </property>
+                <property name="elideMode">
+                 <enum>Qt::ElideRight</enum>
+                </property>
+                <item>
+                 <property name="text">
+                  <string>test1test1test1</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>test2</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>test3</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>test4</string>
+                 </property>
+                </item>
+               </widget>
+              </item>
+              <item row="5" column="0">
                <widget class="QLabel" name="reconstructionMethodLabel">
                 <property name="text">
                  <string>Reconstruction method</string>
                 </property>
                </widget>
               </item>
-              <item row="1" column="1">
+              <item row="5" column="1">
                <widget class="QComboBox" name="reconstructionMethodComboBox"/>
               </item>
-              <item row="2" column="0" colspan="2">
+              <item row="7" column="0" colspan="2">
                <widget class="QGroupBox" name="fbpParameterGroupBox">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
@@ -781,7 +811,7 @@
                 </layout>
                </widget>
               </item>
-              <item row="3" column="0" colspan="2">
+              <item row="9" column="0" colspan="2">
                <widget class="QGroupBox" name="landweberParameterGroupBox">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
@@ -842,14 +872,20 @@
                 </layout>
                </widget>
               </item>
-              <item row="5" column="0" colspan="2">
-               <widget class="QPushButton" name="runReconstructionButton">
+              <item row="10" column="0">
+               <widget class="QCheckBox" name="useCacheCheckbox">
+                <property name="toolTip">
+                 <string/>
+                </property>
                 <property name="text">
-                 <string>Run reconstruction</string>
+                 <string>Use Cache</string>
+                </property>
+                <property name="checked">
+                 <bool>true</bool>
                 </property>
                </widget>
               </item>
-              <item row="6" column="0" colspan="2">
+              <item row="13" column="0" colspan="2">
                <widget class="QPushButton" name="loadReconstructionDataButton">
                 <property name="enabled">
                  <bool>false</bool>
@@ -860,22 +896,35 @@
                </widget>
               </item>
               <item row="0" column="0">
-               <widget class="QCheckBox" name="useSelectedROICheckbox">
+               <widget class="QLabel" name="reconstructionROILabel">
                 <property name="text">
-                 <string>Use selected region of interest</string>
+                 <string>Region of interest</string>
                 </property>
                </widget>
               </item>
-              <item row="4" column="0">
-               <widget class="QCheckBox" name="useCacheCheckbox">
-                <property name="toolTip">
-                 <string/>
+              <item row="12" column="0" colspan="2">
+               <widget class="QPushButton" name="runReconstructionButton">
+                <property name="text">
+                 <string>Run reconstruction</string>
+                </property>
+               </widget>
+              </item>
+              <item row="4" column="0" colspan="2">
+               <widget class="QLabel" name="reconstructionROIMetadataLabel">
+                <property name="frameShape">
+                 <enum>QFrame::Panel</enum>
+                </property>
+                <property name="frameShadow">
+                 <enum>QFrame::Sunken</enum>
                 </property>
                 <property name="text">
-                 <string>Use Cache</string>
+                 <string>Input sinogram size: 0MB, Output volume size: 0MB</string>
                 </property>
-                <property name="checked">
-                 <bool>true</bool>
+                <property name="margin">
+                 <number>5</number>
+                </property>
+                <property name="indent">
+                 <number>5</number>
                 </property>
                </widget>
               </item>
@@ -897,7 +946,7 @@
      <x>0</x>
      <y>0</y>
      <width>741</width>
-     <height>25</height>
+     <height>21</height>
     </rect>
    </property>
   </widget>
@@ -914,6 +963,11 @@
    <extends>QGroupBox</extends>
    <header>ctkCollapsibleGroupBox.h</header>
    <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>ctkComboBox</class>
+   <extends>QComboBox</extends>
+   <header>ctkComboBox.h</header>
   </customwidget>
   <customwidget>
    <class>ctkCoordinatesWidget</class>

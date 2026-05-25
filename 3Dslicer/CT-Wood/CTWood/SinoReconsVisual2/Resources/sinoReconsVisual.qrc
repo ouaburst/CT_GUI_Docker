@@ -1,24 +1,21 @@
 <!DOCTYPE RCC><RCC version="1.0">
-    <qresource prefix="/icons">
-        <file>Icons/SlicerAddLightTheme.svg</file>
-        <file>Icons/SlicerAddDarkTheme.svg</file>
-        <file>Icons/SlicerMinusLightTheme.svg</file>
-        <file>Icons/SlicerMinusDarkTheme.svg</file>
-        <file>Icons/SlicerRemoveLightTheme.svg</file>
-        <file>Icons/SlicerRemoveDarkTheme.svg</file>
+    <qresource>
+        <file>icons/SinoReconsVisual2_v2.svg</file>
+        <file>icons/LayoutSinogram.svg</file>
+        <file>icons/LayoutSinogram.png</file>
     </qresource>
 
-    <qresource prefix="/icons/dark">
-        <file alias="index.theme">Icons/dark/index.theme</file>
-        <file alias="scalable/SlicerAdd.svg">Icons/dark/scalable/SlicerAdd.svg</file>
-        <file alias="scalable/SlicerMinus.svg">Icons/dark/scalable/SlicerMinus.svg</file>
-        <file alias="scalable/SlicerRemove.svg">Icons/dark/scalable/SlicerRemove.svg</file>
+    <qresource>
+        <file>icons/dark/index.theme</file>
+        <file>icons/dark/scalable/SlicerAdd.svg</file>
+        <file>icons/dark/scalable/SlicerMinus.svg</file>
+        <file>icons/dark/scalable/SlicerRemove.svg</file>
     </qresource>
 
-    <qresource prefix="/icons/light">
-        <file alias="index.theme">Icons/light/index.theme</file>
-        <file alias="scalable/SlicerAdd.svg">Icons/light/scalable/SlicerAdd.svg</file>
-        <file alias="scalable/SlicerMinus.svg">Icons/light/scalable/SlicerMinus.svg</file>
-        <file alias="scalable/SlicerRemove.svg">Icons/light/scalable/SlicerRemove.svg</file>
+    <qresource>
+        <file>icons/light/index.theme</file>
+        <file>icons/light/scalable/SlicerAdd.svg</file>
+        <file>icons/light/scalable/SlicerMinus.svg</file>
+        <file>icons/light/scalable/SlicerRemove.svg</file>
     </qresource>
 </RCC>

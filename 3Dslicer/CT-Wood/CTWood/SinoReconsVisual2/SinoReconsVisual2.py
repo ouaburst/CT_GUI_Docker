@@ -188,6 +188,32 @@ class ROIData:
         size_str = f"{size[0]},{size[1]},{size[2]}"
         return ROIJsonData(self.uuid, center_str, size_str, self.sinogram_start_index, self.sinogram_end_index, self.resolution[0], self.resolution[1], self.resolution[2], self.auto_resolution)
 
+class ROIListEventFilter(qt.QObject):
+    roi_list_widget: qt.QListWidget
+    roi_list_widget_viewport: typing.Any # FIXME: real type..
+
+    def __init__(self, roi_list_widget: qt.QListWidget):
+        super().__init__(roi_list_widget)
+        self.roi_list_widget = roi_list_widget
+        self.roi_list_widget.installEventFilter(self)
+
+        self.roi_list_widget_viewport = self.roi_list_widget.viewport()
+        self.roi_list_widget_viewport.installEventFilter(self)
+    
+    def eventFilter(self, source, event) -> bool:
+        if source is self.roi_list_widget:
+            if event.type() == qt.QEvent.KeyPress:
+                if event.key() == qt.Qt.Key_Escape:
+                    self.roi_list_widget.selectionModel().clear()
+                    self.roi_list_widget.setCurrentRow(-1)
+        elif source is self.roi_list_widget_viewport:
+            if event.type() == qt.QEvent.MouseButtonPress:
+                if self.roi_list_widget.indexAt(event.pos()).isValid() == False:
+                    self.roi_list_widget.selectionModel().clear()
+                    self.roi_list_widget.setCurrentRow(-1)
+
+        return False
+
 class QROINameValidator(qt.QValidator):
     roi_list: qt.QListWidget
 
@@ -205,7 +231,6 @@ class QROINameValidator(qt.QValidator):
             else:
                 return qt.QValidator.Invalid
         return qt.QValidator.Acceptable
-            
 
 def getFirstChildOfType(widget: qt.QWidget, ofType: type) -> qt.QObject:
     for child in widget.children():
@@ -219,7 +244,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
     def __init__(self, parent=None):
         ScriptedLoadableModuleWidget.__init__(self, parent)
         VTKObservationMixin.__init__(self)
-        qt.QResource.registerResource(self.resourcePath("sinoReconsVisual.rcc"))
         self.sampleData = SampleData()
 
     # -----------------------------
@@ -229,10 +253,16 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         ScriptedLoadableModuleWidget.setup(self)
 
         self.session = requests.Session()
-        
+
+        loaded = qt.QResource.registerResource(self.resourcePath("sinoReconsVisual.rcc"))
+        print("loaded qrc:", loaded)
+
         # FIXME: I'm unable to figure out how to make resources from qrc files work...
         # - Julius Häger 2026-05-13
+        qt.QIcon.setThemeSearchPaths([":/icons"])
         qt.QIcon.setThemeName("light")
+
+        print(slicer.app.settingsDialog().settingChanged.connect(self.onSettingsChanged))
 
         # Hide the default box
         slicer.app.layoutManager().threeDWidget(0).mrmlViewNode().SetBoxVisible(0)
@@ -244,10 +274,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         # so that you can still open the settings UI.
         # - Julius Häger 2026-05-19
         self.settingsUI = SinoReconsVisual2SettingsPanel(slicer.util.loadUI(self.resourcePath("UI/SinoReconsVisual2SettingsPanel.ui")), self)
-        print(type(slicer.app.settingsDialog()))
         if hasattr(slicer.app.settingsDialog(), 'removePanel'):
             self.settings = qt.QSettings()
-            slicer.app.settingsDialog().addPanel("SinoReconsVisual2", qt.QIcon(os.path.join(get_icons_folder(), "SinoReconsVisual2_v2.svg")), self.settingsUI.settingsPanel)
+            slicer.app.settingsDialog().addPanel("SinoReconsVisual2", qt.QIcon(":/icons/SinoReconsVisual2_v2.svg"), self.settingsUI.settingsPanel)
         else:
             # The "Restore Defaults" button in the settings dialog will reset *all* of the settings in the QSettings object associated with that dialog
             # So for this custom settings dialog we can't reuse the default qt.QSettings() object as that would reset *all* slicer settings.
@@ -258,7 +287,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.settingsDialog = ctk.ctkSettingsDialog()
             self.settingsDialog.resetButton = True
             self.settingsDialog.settings = self.settings
-            self.settingsDialog.addPanel("SinoReconsVisual2", qt.QIcon(os.path.join(get_icons_folder(), "SinoReconsVisual2_v2.svg")), self.settingsUI.settingsPanel)
+            self.settingsDialog.addPanel("SinoReconsVisual2", qt.QIcon(":/icons/SinoReconsVisual2_v2.svg"), self.settingsUI.settingsPanel)
 
             settingsButton = qt.QPushButton()
             settingsButton.text = "Settings"
@@ -266,9 +295,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.layout.addWidget(settingsButton)
 
         # Load and attach UI
-        uiWidget = slicer.util.loadUI(self.resourcePath("UI/SinoReconsVisual2.ui"))
-        self.ui = slicer.util.childWidgetVariables(uiWidget)
-        self.layout.addWidget(uiWidget)
+        self.uiWidget = slicer.util.loadUI(self.resourcePath("UI/SinoReconsVisual2.ui"))
+        self.ui = slicer.util.childWidgetVariables(self.uiWidget)
+        self.layout.addWidget(self.uiWidget)
 
         self.registerSinogramLayout()
 
@@ -349,7 +378,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.ui.roiListWidget.currentItemChanged.connect(self.selectROI)
         self.ui.roiListWidget.itemChanged.connect(self.roiItemChanged)
         self.selectROI(None, None)
-        self.ui.roiListWidgetEventFilter = self.ROIListEventFilter(self.ui.roiListWidget)
+        self.ui.roiListWidgetEventFilter = ROIListEventFilter(self.ui.roiListWidget)
         self.ui.roiSaveButton.clicked.connect(self.saveROIClicked)
 
         self.ui.roiListWidget.setContextMenuPolicy(qt.Qt.CustomContextMenu)
@@ -379,32 +408,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
         self.interactor_observer_tag = interactor.AddObserver(vtk.vtkCommand.LeftButtonPressEvent, onLeftClick, 1.0)
 
-    class ROIListEventFilter(qt.QObject):
-        roi_list_widget: qt.QListWidget
-        roi_list_widget_viewport: typing.Any # FIXME: real type..
-
-        def __init__(self, roi_list_widget: qt.QListWidget):
-            super().__init__()
-            self.roi_list_widget = roi_list_widget
-            self.roi_list_widget.installEventFilter(self)
-
-            self.roi_list_widget_viewport = self.roi_list_widget.viewport()
-            self.roi_list_widget_viewport.installEventFilter(self)
-        
-        def eventFilter(self, source, event) -> bool:
-            if source is self.roi_list_widget:
-                if event.type() == qt.QEvent.KeyPress:
-                    if event.key() == qt.Qt.Key_Escape:
-                        self.roi_list_widget.selectionModel().clear()
-                        self.roi_list_widget.setCurrentRow(-1)
-            elif source is self.roi_list_widget_viewport:
-                if event.type() == qt.QEvent.MouseButtonPress:
-                    if self.roi_list_widget.indexAt(event.pos()).isValid() == False:
-                        self.roi_list_widget.selectionModel().clear()
-                        self.roi_list_widget.setCurrentRow(-1)
-
-            return False
-
     def registerSinogramLayout(self):
         # viewgroup=196291749 is a hopefully unique viewgroup number so that
         # that slice node doesn't consider itself in the same coordinate space
@@ -417,7 +420,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         <layout type="vertical">
             <item><view class="vtkMRMLViewNode" singletontag="1">
                 <property name="viewlabel" action="default">1</property>
-                <property name="viewcolor" action="default">#FFFF00</property>
             </view></item>
             <item><view class="vtkMRMLSliceNode" singletontag="Gray">
                 <property name="orientation" action="default">Sagittal</property>
@@ -443,10 +445,15 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             layoutSwitchActionParent = layoutMenu  # use `layoutMenu` to add inside layout list, use `viewToolBar` to add next the standard layout list
             layoutSwitchAction = layoutSwitchActionParent.addAction("Sinogram layout") # add inside layout list
             layoutSwitchAction.setData(customLayoutId)
-            layoutSwitchAction.setIcon(qt.QIcon(os.path.join(get_icons_folder(), "SinoReconsVisual2_v2.svg")))
+            layoutSwitchAction.setIcon(qt.QIcon(":/icons/LayoutSinogram.png"))
             layoutSwitchAction.setToolTip("3D and sinogram view")
 
     def cleanup(self):
+        loaded = qt.QResource.unregisterResource(self.resourcePath("sinoReconsVisual.rcc"))
+        print("unloaded qrc:", loaded)
+
+        print(slicer.app.settingsDialog().settingChanged.disconnect(self.onSettingsChanged))
+
         if hasattr(slicer.app.settingsDialog(), 'removePanel'):
             slicer.app.settingsDialog().removePanel(self.settingsUI.settingsPanel)
 
@@ -465,6 +472,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 item = self.ui.roiListWidget.item(row)
                 itemData: ROIData = item.data(qt.Qt.UserRole)
                 slicer.mrmlScene.RemoveNode(itemData.roi_node)
+        
+        if hasattr(self, 'uiWidget'):
+            self.uiWidget.deleteLater()
 
     def onReload(self):
         import importlib
@@ -472,6 +482,28 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         importlib.reload(settings)
         importlib.reload(settings.SinoReconsVisual2SettingsPanel)
         ScriptedLoadableModuleWidget.onReload(self)
+
+    def onSettingsChanged(self, key, value):
+        if key == "Styles/Style":
+            self.onStyleChanged(value)
+
+    def onStyleChanged(self, value):
+        if value == "Slicer" or value == "Light Slicer":
+            qt.QIcon.setThemeName("light")
+            # FIXME: I'm unable to get QIcon themes to work correctly so currently we
+            # need to update all of the light/dark icons here manually.
+            # - Julius Häger 2026-05-25
+            self.ui.addROIButton.setIcon(qt.QIcon(":/icons/light/scalable/SlicerAdd.svg"))
+            self.ui.removeROIButton.setIcon(qt.QIcon(":/icons/light/scalable/SlicerMinus.svg"))
+        elif value == "Dark Slicer":
+            qt.QIcon.setThemeName("dark")
+            # FIXME: I'm unable to get QIcon themes to work correctly so currently we
+            # need to update all of the light/dark icons here manually.
+            # - Julius Häger 2026-05-25
+            self.ui.addROIButton.setIcon(qt.QIcon(":/icons/dark/scalable/SlicerAdd.svg"))
+            self.ui.removeROIButton.setIcon(qt.QIcon(":/icons/dark/scalable/SlicerMinus.svg"))
+        else:
+            print(f"Unknown style '{value}'")
 
     # -----------------------------
     # Utility
@@ -710,12 +742,20 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 volume.SetIJKToRASDirections([(1,0,0), (0,1,0), (0,0,1)])
 
         except requests.exceptions.RequestException as e:
+            if 'progress' in locals():
+                progress.close()
             print(traceback.format_exc())
+            kwargs = {}
+            if e.response != None:
+                kwargs['detailedText'] = f"{e.response.json()['stderr']}"
             slicer.util.errorDisplay(
-                f"Failed to start reconstruction at:\n{run_url}\n\n{e}",
-                windowTitle="Reconstruction Error"
+                f"Failed to start reconstruction:\n{e}",
+                windowTitle="Reconstruction Error",
+                **kwargs
             )
         except Exception as e:
+            if 'progress' in locals():
+                progress.close()
             print(traceback.format_exc())
             slicer.util.errorDisplay(f"Reconstruction failed:\n{e}", windowTitle="Reconstruction Error")
         
@@ -871,6 +911,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.ui.roiCenterCoordinateWidget.setMRMLScene(slicer.mrmlScene)
             self.ui.roiSizeCoordinateWidget.setMRMLScene(slicer.mrmlScene)
             self.ui.roiResolutionCoordinateWidget.setMRMLScene(slicer.mrmlScene)
+
+            #self.ui.roiISRangeWidget.setMRMLScene(slicer.mrmlScene)
 
             sample_roi_dir = Path(os.path.expanduser(f"~/Documents/SinoRecons/{self.sampleData.specie}_{self.sampleData.tree_ID}_{self.sampleData.disk_ID}/"))
             self.clearROIs()
@@ -1084,6 +1126,11 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         new_name = item.text()
         print(f"roiItemChanged: {new_name} old name: {itemData.name}")
         itemData.roi_node.SetName(new_name)
+
+        i = self.ui.reconstructionROIComboBox.findData(itemData)
+        if i != -1:
+            self.ui.reconstructionROIComboBox.setItemText(i, itemData.name)
+
         # This is the second part of the hack in QListWidgetItemModifiedDelegate.
         # At this point the delegate has updated _modified after the list item was edited
         # so now we must actually apply the modified update.
@@ -1132,6 +1179,15 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         else:
             self.ui.roiEditWidget.setEnabled(True)
             self.ui.removeROIButton.setEnabled(True)
+
+            # FIXME: There is something weird going on when setting the scene of the range widget.
+            # It seems I'm not able to set the scene? Which then causes the widget to be disabled...??
+            self.ui.roiLRRangeWidget.setMRMLScene(slicer.mrmlScene)
+            self.ui.roiPARangeWidget.setMRMLScene(slicer.mrmlScene)
+            self.ui.roiISRangeWidget.setMRMLScene(slicer.mrmlScene)
+            self.ui.roiLRRangeWidget.setEnabled(True)
+            self.ui.roiPARangeWidget.setEnabled(True)
+            self.ui.roiISRangeWidget.setEnabled(True)
 
             itemData: ROIData = current.data(qt.Qt.UserRole)
             roiNode = itemData.roi_node
@@ -1457,7 +1513,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         
         itemData.resolution = (int(x), int(y), int(z))
 
-        self.updateROIMetadataLabel(itemData)
+        self.updateROIMetadataLabel(self.ui.roiMetadataLabel, itemData)
         
         self.roiUpdateModified(itemData, True)
 
@@ -1546,7 +1602,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         itemData.sinogram_end_index = maxVal
 
         self.updateRoiSinogramRange(minVal, maxVal, True)
-        self.updateROIMetadataLabel(itemData)
+        self.updateROIMetadataLabel(self.ui.roiMetadataLabel, itemData)
 
         self.roiUpdateModified(itemData, True)
 

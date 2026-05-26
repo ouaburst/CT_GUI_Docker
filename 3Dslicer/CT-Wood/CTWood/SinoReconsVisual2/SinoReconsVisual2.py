@@ -146,8 +146,8 @@ class SampleData:
     bounds_min: np.typing.NDArray[np.float32]
     bounds_max: np.typing.NDArray[np.float32]
 
-    rec_bounds_min: np.typing.NDArray[np.float32]
-    rec_bounds_max: np.typing.NDArray[np.float32]
+    rec_bounds_min: np.typing.NDArray[np.float64]
+    rec_bounds_max: np.typing.NDArray[np.float64]
 
     geometry: dict[str, np.typing.NDArray]
 
@@ -373,13 +373,13 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.ui.showROISinogramRangeSourceDetectorCheckBox.stateChanged.connect(self.showROISinogramRangeSourceDetectorStateChanged)
         self.ui.showROISinogramRangeSourceDetectorCheckBox.setChecked(self.settings.value(SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST_SOURCE_DETECTOR, True))
 
-        if not self.ui.roiCenterCoordinateWidget.connect("coordinatesChanged(double, double, double, double)", self.roiCenterChanged):
-            self.ui.roiCenterCoordinateWidget.coordinatesChanged.connect(self.roiCenterChangedOld)
-        if not self.ui.roiSizeCoordinateWidget.connect("coordinatesChanged(double, double, double, double)", self.roiSizeChanged):
-            self.ui.roiSizeCoordinateWidget.coordinatesChanged.connect(self.roiSizeChangedOld)
         if not self.ui.roiResolutionCoordinateWidget.connect("coordinatesChanged(double, double, double, double)", self.roiResolutionChanged):
             self.ui.roiResolutionCoordinateWidget.coordinatesChanged.connect(self.roiResolutionChangedOld)
         
+        self.ui.roiLRRangeWidget.valuesChanged.connect(self.roiLRRangeChanged)
+        self.ui.roiPARangeWidget.valuesChanged.connect(self.roiPARangeChanged)
+        self.ui.roiISRangeWidget.valuesChanged.connect(self.roiISRangeChanged)
+
         self.ui.sinogramRangeWidget.valuesChanged.connect(self.roiSinogramValuesChanged)
         color = self.settings.value("SinoReconsVisual2/ROI/SinogramRangeColor")
         palette = self.ui.sinogramRangeWidget.palette
@@ -651,8 +651,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             center = np.array(itemData.roi_node.GetCenter())
             size = np.array(itemData.roi_node.GetSize())
             
-            min = center - (size * 0.5)
-            max = center + (size * 0.5)
+            min = center - (size / 2.0)
+            max = center + (size / 2.0)
 
             params["REC_MIN_X"] = float(min[0])
             params["REC_MIN_Y"] = float(min[1])
@@ -929,6 +929,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.sampleData.totalSamples = len(self.sampleData.geometry.get("sources", []))
             self.sampleData.bounds_max = np.max(self.sampleData.geometry.get("sources", np.empty(0)), axis = 0)
             self.sampleData.bounds_min = np.min(self.sampleData.geometry.get("sources", np.empty(0)), axis = 0)
+            print("min/max", self.sampleData.bounds_min, self.sampleData.bounds_max)
             end = time.time()
             print(f"[INFO] Loaded full geometry: "
                   f"{len(self.sampleData.geometry.get("sources", []))} sources, "
@@ -951,7 +952,23 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.sampleData.rec_bounds_min = np.array([self.sampleData.metadata["REC_MIN_X"], self.sampleData.metadata["REC_MIN_Y"], self.sampleData.bounds_min[2]])
             self.sampleData.rec_bounds_max = np.array([self.sampleData.metadata["REC_MAX_X"], self.sampleData.metadata["REC_MAX_Y"], self.sampleData.bounds_max[2]])
 
-            self.ui.metadataGroupBox.visible = True
+            # FIXME: There is something weird going on when setting the scene of the range widget.
+            # It seems I'm not able to set the scene? Which then causes the widget to be disabled...??
+            self.ui.roiLRRangeWidget.setMRMLScene(slicer.mrmlScene)
+            self.ui.roiPARangeWidget.setMRMLScene(slicer.mrmlScene)
+            self.ui.roiISRangeWidget.setMRMLScene(slicer.mrmlScene)
+            self.ui.roiLRRangeWidget.setEnabled(True)
+            self.ui.roiPARangeWidget.setEnabled(True)
+            self.ui.roiISRangeWidget.setEnabled(True)
+            self.ui.roiLRRangeWidget.setRange(self.sampleData.rec_bounds_min[0], self.sampleData.rec_bounds_max[0])
+            self.ui.roiPARangeWidget.setRange(self.sampleData.rec_bounds_min[1], self.sampleData.rec_bounds_max[1])
+            self.ui.roiISRangeWidget.setRange(self.sampleData.rec_bounds_min[2], self.sampleData.rec_bounds_max[2]) 
+
+            print(f"LR bounds {self.sampleData.rec_bounds_min[0]}, {self.sampleData.rec_bounds_max[0]} center: {(self.sampleData.rec_bounds_max[0] + self.sampleData.rec_bounds_min[0]) / 2.0} size: {self.sampleData.rec_bounds_max[0] - self.sampleData.rec_bounds_min[0]}")
+            print(f"PA bounds {self.sampleData.rec_bounds_min[1]}, {self.sampleData.rec_bounds_max[1]} center: {(self.sampleData.rec_bounds_max[1] + self.sampleData.rec_bounds_min[1]) / 2.0} size: {self.sampleData.rec_bounds_max[1] - self.sampleData.rec_bounds_min[1]}")
+            print(f"IS bounds {self.sampleData.rec_bounds_min[2]}, {self.sampleData.rec_bounds_max[2]} center: {(self.sampleData.rec_bounds_max[2] + self.sampleData.rec_bounds_min[2]) / 2.0} size: {self.sampleData.rec_bounds_max[2] - self.sampleData.rec_bounds_min[2]}")
+
+            self.ui.metadataGroupBox.visible = True 
             self.ui.metadataTableWidget.clear()
             self.ui.metadataTableWidget.setRowCount(0)
             self.ui.metadataTableWidget.setHorizontalHeaderLabels(["Name", "Value"])
@@ -966,13 +983,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 self.ui.metadataTableWidget.setItem(0, 1, valueItem)
             self.ui.metadataTableWidget.sortingEnabled = True
 
-            # So that the units get set correctly
-            self.ui.roiCenterCoordinateWidget.setMRMLScene(slicer.mrmlScene)
-            self.ui.roiSizeCoordinateWidget.setMRMLScene(slicer.mrmlScene)
-            self.ui.roiResolutionCoordinateWidget.setMRMLScene(slicer.mrmlScene)
-
-            #self.ui.roiISRangeWidget.setMRMLScene(slicer.mrmlScene)
-
+            # FIXME: linux and macOS?
             sample_roi_dir = Path(os.path.expanduser(f"~/Documents/SinoRecons/{self.sampleData.specie}_{self.sampleData.tree_ID}_{self.sampleData.disk_ID}/"))
             self.clearROIs()
             self.loadROIsForSample(sample_roi_dir)
@@ -1088,8 +1099,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
     def addROI(self,
                name: str|None = None,
                id: uuid.UUID|None = None,
-               center: vtk.vtkVector3f|None = None,
-               size: vtk.vtkVector3f|None = None,
+               center: vtk.vtkVector3d|None = None,
+               size: vtk.vtkVector3d|None = None,
                sinogram_start: int|None = None,
                sinogram_end: int|None = None,
                resolution: tuple[int, int, int]|None = None,
@@ -1120,14 +1131,18 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         if center is not None:
             roi_data.roi_node.SetCenter(center)
         else:
-            default_center = (self.sampleData.rec_bounds_min + self.sampleData.rec_bounds_max) * 0.5
-            print(default_center)
-            roi_data.roi_node.SetCenter(vtk.vtkVector3f(default_center[0], default_center[1], default_center[2]))
+            default_center = (self.sampleData.rec_bounds_min + self.sampleData.rec_bounds_max) / 2.0
+            default_size = self.sampleData.rec_bounds_max - self.sampleData.rec_bounds_min
+            min2 = default_center - default_size / 2.0
+            max2 = default_center + default_size / 2.0
+            print(f"bounds min: {self.sampleData.rec_bounds_min} max: {self.sampleData.rec_bounds_max} -> default center/size: {default_center} {default_size} -> min/max {min2} {max2}")
+            roi_data.roi_node.SetCenter(default_center[0], default_center[1], default_center[2])
         
         if size is not None:
-            roi_data.roi_node.SetSize((size.GetX(), size.GetY(), size.GetZ()))
+            roi_data.roi_node.SetSize(size.GetX(), size.GetY(), size.GetZ())
         else:
             default_size = self.sampleData.rec_bounds_max - self.sampleData.rec_bounds_min
+            print("default size", default_size, default_size.dtype, self.sampleData.rec_bounds_min, self.sampleData.rec_bounds_max)
             roi_data.roi_node.SetSize(default_size)
 
         if resolution is not None:
@@ -1183,7 +1198,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
     def roiItemChanged(self, item: qt.QListWidgetItem):
         itemData: ROIData = item.data(qt.Qt.UserRole)
         new_name = item.text()
-        print(f"roiItemChanged: {new_name} old name: {itemData.name}")
+        #print(f"roiItemChanged: {new_name} old name: {itemData.name}")
         itemData.roi_node.SetName(new_name)
 
         i = self.ui.reconstructionROIComboBox.findData(itemData)
@@ -1239,15 +1254,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.ui.roiEditWidget.setEnabled(True)
             self.ui.removeROIButton.setEnabled(True)
 
-            # FIXME: There is something weird going on when setting the scene of the range widget.
-            # It seems I'm not able to set the scene? Which then causes the widget to be disabled...??
-            self.ui.roiLRRangeWidget.setMRMLScene(slicer.mrmlScene)
-            self.ui.roiPARangeWidget.setMRMLScene(slicer.mrmlScene)
-            self.ui.roiISRangeWidget.setMRMLScene(slicer.mrmlScene)
-            self.ui.roiLRRangeWidget.setEnabled(True)
-            self.ui.roiPARangeWidget.setEnabled(True)
-            self.ui.roiISRangeWidget.setEnabled(True)
-
             itemData: ROIData = current.data(qt.Qt.UserRole)
             roiNode = itemData.roi_node
 
@@ -1256,31 +1262,30 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             resolution = itemData.resolution
 
             try:
-                self.ui.roiCenterCoordinateWidget.blockSignals(True)
-                self.ui.roiCenterCoordinateWidget.setCoordinates(center.GetX(), center.GetY(), center.GetZ(), 0)
-                self.ui.roiCenterCoordinateWidget.blockSignals(False)
-
-                self.ui.roiSizeCoordinateWidget.blockSignals(True)
-                self.ui.roiSizeCoordinateWidget.setCoordinates(size[0], size[1], size[2], 0)
-                self.ui.roiSizeCoordinateWidget.blockSignals(False)
-
                 self.ui.roiResolutionCoordinateWidget.blockSignals(True)
                 self.ui.roiResolutionCoordinateWidget.setCoordinates(resolution[0], resolution[1], resolution[2], 0)
                 self.ui.roiResolutionCoordinateWidget.blockSignals(False)
             except:
                 # Current version of slicer doesn't have the setCoordinate PR merged yet.
                 # See: https://github.com/commontk/CTK/pull/1417
-                self.ui.roiCenterCoordinateWidget.blockSignals(True)
-                self.writeValuesToCoordinateWidget(self.ui.roiCenterCoordinateWidget, [center.GetX(),center.GetY(),center.GetZ()])
-                self.ui.roiCenterCoordinateWidget.blockSignals(False)
-
-                self.ui.roiSizeCoordinateWidget.blockSignals(True)
-                self.writeValuesToCoordinateWidget(self.ui.roiSizeCoordinateWidget, size)
-                self.ui.roiSizeCoordinateWidget.blockSignals(False)
-
                 self.ui.roiResolutionCoordinateWidget.blockSignals(True)
                 self.writeValuesToCoordinateWidget(self.ui.roiResolutionCoordinateWidget, resolution)
                 self.ui.roiResolutionCoordinateWidget.blockSignals(False)
+
+            min_point = np.array(center) - np.array(size) / 2.0
+            max_point = np.array(center) + np.array(size) / 2.0
+
+            self.ui.roiLRRangeWidget.blockSignals(True)
+            self.ui.roiLRRangeWidget.setValues(min_point[0], max_point[0])
+            self.ui.roiLRRangeWidget.blockSignals(False)
+
+            self.ui.roiPARangeWidget.blockSignals(True)
+            self.ui.roiPARangeWidget.setValues(min_point[1], max_point[1])
+            self.ui.roiPARangeWidget.blockSignals(False)
+
+            self.ui.roiISRangeWidget.blockSignals(True)
+            self.ui.roiISRangeWidget.setValues(min_point[2], max_point[2])
+            self.ui.roiISRangeWidget.blockSignals(False)
 
             self.ui.sinogramRangeWidget.blockSignals(True)
             self.ui.sinogramRangeWidget.setValues(itemData.sinogram_start_index, itemData.sinogram_end_index)
@@ -1316,8 +1321,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
             roiDisplayNode.SetHandlesInteractive(True)
             roiNode.SetLocked(0)
-
-            print(f"selectable: {roiDisplayNode.GetSelectable()} selected {roiDisplayNode.GetSelected()}")
 
             for i in range(roiNode.GetNumberOfControlPoints()):
                 roiNode.SetNthControlPointVisibility(i, True)
@@ -1384,9 +1387,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             return
         paths = os.listdir(sample_directory)
         for path in paths:
-            print(f"Loading {path} {os.path.isfile(sample_directory / path)} {path.endswith(".json")}")
+            #print(f"Loading {path} {os.path.isfile(sample_directory / path)} {path.endswith(".json")}")
             if os.path.isfile(sample_directory / path) and path.endswith(".json"):
-                print(f"Loading {path}")
+                #print(f"Loading {path}")
                 self.loadROIFromFile(sample_directory / path)
 
     def loadROIFromFile(self, path: Path):
@@ -1398,8 +1401,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             raise VersionNotSupportedError("The ROI file version is newer than this plugin understands. Maybe there is a new plugin version?", version)
         name = path.stem
         id = uuid.UUID(data["uuid"])
-        center = vtk.vtkVector3f(data["center"])
-        size = vtk.vtkVector3f(data["size"])
+        center = vtk.vtkVector3d(data["center"])
+        size = vtk.vtkVector3d(data["size"])
         sinogram_start_index = int(data["sinogram_range"][0])
         sinogram_end_index = int(data["sinogram_range"][1])
         resolution = (int(data["resolution"][0]), int(data["resolution"][1]), int(data["resolution"][2]))
@@ -1459,8 +1462,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         assert roi.uuid == uuid.UUID(data["uuid"])
         roi.name = path.stem
         roi.roi_node.SetName(roi.name)
-        roi.roi_node.SetCenter(vtk.vtkVector3f(data["center"]))
-        roi.roi_node.SetSize(vtk.vtkVector3f(data["size"]))
+        roi.roi_node.SetCenter(vtk.vtkVector3d(data["center"]))
+        roi.roi_node.SetSize(vtk.vtkVector3d(data["size"]))
         roi.sinogram_start_index = int(data["sinogram_range"][0])
         roi.sinogram_end_index = int(data["sinogram_range"][1])
         roi.resolution = (int(data["resolution"][0]), int(data["resolution"][1]), int(data["resolution"][2]))
@@ -1470,31 +1473,30 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             size = roi.roi_node.GetSize()
             resolution = roi.resolution
             try:
-                self.ui.roiCenterCoordinateWidget.blockSignals(True)
-                self.ui.roiCenterCoordinateWidget.setCoordinates(center.GetX(), center.GetY(), center.GetZ(), 0)
-                self.ui.roiCenterCoordinateWidget.blockSignals(False)
-
-                self.ui.roiSizeCoordinateWidget.blockSignals(True)
-                self.ui.roiSizeCoordinateWidget.setCoordinates(size[0], size[1], size[2], 0)
-                self.ui.roiSizeCoordinateWidget.blockSignals(False)
-
                 self.ui.roiResolutionCoordinateWidget.blockSignals(True)
                 self.ui.roiResolutionCoordinateWidget.setCoordinates(resolution[0], resolution[1], resolution[2], 0)
                 self.ui.roiResolutionCoordinateWidget.blockSignals(False)
             except:
                 # Current version of slicer doesn't have the setCoordinate PR merged yet.
                 # See: https://github.com/commontk/CTK/pull/1417
-                self.ui.roiCenterCoordinateWidget.blockSignals(True)
-                self.writeValuesToCoordinateWidget(self.ui.roiCenterCoordinateWidget, [center.GetX(),center.GetY(),center.GetZ()])
-                self.ui.roiCenterCoordinateWidget.blockSignals(False)
-
-                self.ui.roiSizeCoordinateWidget.blockSignals(True)
-                self.writeValuesToCoordinateWidget(self.ui.roiSizeCoordinateWidget, size)
-                self.ui.roiSizeCoordinateWidget.blockSignals(False)
-
                 self.ui.roiResolutionCoordinateWidget.blockSignals(True)
                 self.writeValuesToCoordinateWidget(self.ui.roiResolutionCoordinateWidget, resolution)
                 self.ui.roiResolutionCoordinateWidget.blockSignals(False)
+
+            min_point = np.array(center) - np.array(size) / 2.0
+            max_point = np.array(center) + np.array(size) / 2.0
+
+            self.ui.roiLRRangeWidget.blockSignals(True)
+            self.ui.roiLRRangeWidget.setValues(min_point[0], max_point[0])
+            self.ui.roiLRRangeWidget.blockSignals(False)
+
+            self.ui.roiPARangeWidget.blockSignals(True)
+            self.ui.roiPARangeWidget.setValues(min_point[1], max_point[1])
+            self.ui.roiPARangeWidget.blockSignals(False)
+
+            self.ui.roiISRangeWidget.blockSignals(True)
+            self.ui.roiISRangeWidget.setValues(min_point[2], max_point[2])
+            self.ui.roiISRangeWidget.blockSignals(False)
 
             self.ui.sinogramRangeWidget.blockSignals(True)
             self.ui.sinogramRangeWidget.setValues(roi.sinogram_start_index, roi.sinogram_end_index)
@@ -1503,6 +1505,68 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
         self.roiUpdateModified(roi, False)
 
+    def roiLRRangeChanged(self, min: float, max: float):
+        if self.ui.roiListWidget.currentRow == -1:
+            return
+
+        item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
+        itemData: ROIData = item.data(qt.Qt.UserRole)
+        roiNode = itemData.roi_node
+
+        center = roiNode.GetCenter()
+        size = list(roiNode.GetSize())
+
+        center[0] = (min + max) / 2.0
+        size[0] = max - min
+
+        previousDisableModifiedEventState = roiNode.StartModify()
+        roiNode.SetCenter(center)
+        roiNode.SetSize(size)
+        roiNode.EndModify(previousDisableModifiedEventState)
+
+        self.roiUpdateModified(itemData, True)
+
+    def roiPARangeChanged(self, min: float, max: float):
+        if self.ui.roiListWidget.currentRow == -1:
+            return
+        
+        item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
+        itemData: ROIData = item.data(qt.Qt.UserRole)
+        roiNode = itemData.roi_node
+
+        center = roiNode.GetCenter()
+        size = list(roiNode.GetSize())
+
+        center[1] = (min + max) / 2.0
+        size[1] = max - min
+
+        previousDisableModifiedEventState = roiNode.StartModify()
+        roiNode.SetCenter(center)
+        roiNode.SetSize(size)
+        roiNode.EndModify(previousDisableModifiedEventState)
+
+        self.roiUpdateModified(itemData, True)
+
+    def roiISRangeChanged(self, min: float, max: float):
+        if self.ui.roiListWidget.currentRow == -1:
+            return
+        
+        item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
+        itemData: ROIData = item.data(qt.Qt.UserRole)
+        roiNode = itemData.roi_node
+
+        center = roiNode.GetCenter()
+        size = list(roiNode.GetSize())
+
+        center[2] = (min + max) / 2.0
+        size[2] = max - min
+
+        previousDisableModifiedEventState = roiNode.StartModify()
+        roiNode.SetCenter(center)
+        roiNode.SetSize(size)
+        roiNode.EndModify(previousDisableModifiedEventState)
+
+        self.roiUpdateModified(itemData, True)
 
     # FIXME: This is a workaround for ctkCoordinateWidget not having
     # any good python bindings. Here we are hoping that the children of the coordinate widget
@@ -1522,42 +1586,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
     # - Julius Häger 2026-04-07
     # https://github.com/commontk/CTK/pull/1417 updates this and adds a x,y,z,w overload
     # - Julius Häger 2026-04-29
-    def roiCenterChangedOld(self, _broken):
-        x,y,z = self.readValuesFromCoordinateWidget(self.ui.roiCenterCoordinateWidget)
-        print("center old", x,y,z)
-        self.roiCenterChanged(x, y, z, 0)
-
-    def roiCenterChanged(self, x: float, y: float, z: float, w: float):
-        if self.ui.roiListWidget.currentRow == -1:
-            return
-        
-        item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
-        itemData: ROIData = item.data(qt.Qt.UserRole)
-        roiNode = itemData.roi_node
-
-        roiNode.SetCenter([x, y, z])
-        self.roiUpdateModified(itemData, True)
-
-    def roiSizeChangedOld(self, _broken):
-        x,y,z = self.readValuesFromCoordinateWidget(self.ui.roiSizeCoordinateWidget)
-        print("size old", x, y, z)
-        self.roiSizeChanged(x, y, z, 0)
-
-    def roiSizeChanged(self, x: float, y: float, z: float, w: float):
-        if self.ui.roiListWidget.currentRow == -1:
-            return
-        
-        item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
-        itemData: ROIData = item.data(qt.Qt.UserRole)
-        roiNode = itemData.roi_node
-
-        roiNode.SetSize([x, y, z])
-
-        if itemData.auto_resolution:
-            self.roiUpdateResolution(itemData)
-
-        self.roiUpdateModified(itemData, True)
-
     def roiResolutionChangedOld(self, _broken):
         x,y,z = self.readValuesFromCoordinateWidget(self.ui.roiResolutionCoordinateWidget)
         print("res old", x, y, z)
@@ -1594,62 +1622,46 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
     
     # Called when the roi is changed using the 3D/2D widgets.
     def roiNodeChanged(self, roiNode, event):
-        print(event, type(event))
-
-        # FIXME: Only change the UI if this is the active roiNode?
-        center = roiNode.GetCenter()
-        size = roiNode.GetSize()
-
-        # FIXME: Check that anything actually changed?
-        modified = False
-
         roi = self.getROIDataFromNode(roiNode)
         assert roi != None
         
+        modified = False
+
         # If this ROI is not the selected ROI then we don't update the UI.
-        if self.ui.roiListWidget.currentItem().data(qt.Qt.UserRole) == roi:
-            try:
-                # FIXME: Very inefficient to set the coordinates through strings
-                # FIXME: The coordinate string that is returned is rounded to the number of decimals used to display
-                # which means we will never be able to accurately get the values from the control... so the modified check will fail.
-                self.ui.roiCenterCoordinateWidget.blockSignals(True)
-                old_center = [self.ui.roiCenterCoordinateWidget.getCoordinate(0), self.ui.roiCenterCoordinateWidget.getCoordinate(1), self.ui.roiCenterCoordinateWidget.getCoordinate(2)]
-                if old_center != [center.GetX(),center.GetY(),center.GetZ()]:
-                    print(f"change center! {old_center} -> {[center.GetX(),center.GetY(),center.GetZ()]}")
-                    self.ui.roiCenterCoordinateWidget.setCoordinates(center.GetX(), center.GetY(), center.GetZ(), 0)
-                    modified = True
-                self.ui.roiCenterCoordinateWidget.blockSignals(False)
+        if self.ui.roiListWidget.currentRow != -1 and self.ui.roiListWidget.currentItem().data(qt.Qt.UserRole) == roi:
+            center = roiNode.GetCenter()
+            size = roiNode.GetSize()
 
-                self.ui.roiSizeCoordinateWidget.blockSignals(True)
-                old_size = [self.ui.roiSizeCoordinateWidget.getCoordinate(0), self.ui.roiSizeCoordinateWidget.getCoordinate(1), self.ui.roiSizeCoordinateWidget.getCoordinate(2)]
-                if old_size != [size[0],size[1],size[2]]:
-                    print(f"change size! {old_size} -> {[size[0],size[1],size[2]]}")
-                    self.ui.roiSizeCoordinateWidget.setCoordinates(size[0],size[1],size[2], 0)
+            min_point = np.array(center) - np.array(size) / 2.0
+            max_point = np.array(center) + np.array(size) / 2.0
 
-                    modified = True
-                self.ui.roiSizeCoordinateWidget.blockSignals(False)
-            except:
-                # Current version of slicer doesn't have the setCoordinate PR merged yet.
-                # See: https://github.com/commontk/CTK/pull/1417
+            # FIXME: We must do the comparisons in float32 because vtkMRMLMarkupsROINode
+            # accidentally casts the center position to a 32-bit float.
+            # See: https://github.com/Slicer/Slicer/pull/9183
+            self.ui.roiLRRangeWidget.blockSignals(True)
+            if np.float32(self.ui.roiLRRangeWidget.minimumValue) != np.float32(min_point[0]) or \
+               np.float32(self.ui.roiLRRangeWidget.maximumValue) != np.float32(max_point[0]):
+                print(f"LR changed {self.ui.roiLRRangeWidget.minimumValue},{self.ui.roiLRRangeWidget.maximumValue} -> {min_point[0]},{max_point[0]} center: {center} size: {size}")
+                self.ui.roiLRRangeWidget.setValues(min_point[0], max_point[0])
+                modified = True
+            self.ui.roiLRRangeWidget.blockSignals(False)
 
-                self.ui.roiCenterCoordinateWidget.blockSignals(True)
-                old_center = self.readValuesFromCoordinateWidget(self.ui.roiCenterCoordinateWidget)
-                if old_center != [center.GetX(),center.GetY(),center.GetZ()]:
-                    print(f"change center! {old_center} -> {[center.GetX(),center.GetY(),center.GetZ()]}")
-                    self.writeValuesToCoordinateWidget(self.ui.roiCenterCoordinateWidget, [center.GetX(),center.GetY(),center.GetZ()])
-                    modified = True
-                self.ui.roiCenterCoordinateWidget.blockSignals(False)
+            self.ui.roiPARangeWidget.blockSignals(True)
+            if np.float32(self.ui.roiPARangeWidget.minimumValue) != np.float32(min_point[1]) or \
+               np.float32(self.ui.roiPARangeWidget.maximumValue) != np.float32(max_point[1]):
+                print(f"PA changed {self.ui.roiPARangeWidget.minimumValue},{self.ui.roiPARangeWidget.maximumValue} -> {min_point[1]},{max_point[1]}  center: {center} size: {size}")
+                self.ui.roiPARangeWidget.setValues(min_point[1], max_point[1])
+                modified = True
+            self.ui.roiPARangeWidget.blockSignals(False)
 
-                self.ui.roiSizeCoordinateWidget.blockSignals(True)
-                old_size = self.readValuesFromCoordinateWidget(self.ui.roiSizeCoordinateWidget)
-                if old_size != [size[0],size[1],size[2]]:
-                    print(f"change size! {old_size} -> {[size[0],size[1],size[2]]}")
-                    self.writeValuesToCoordinateWidget(self.ui.roiSizeCoordinateWidget, size)
-                    if roi.auto_resolution:
-                        self.roiUpdateResolution(roi)
-                    modified = True
-                self.ui.roiSizeCoordinateWidget.blockSignals(False)
-            
+            self.ui.roiISRangeWidget.blockSignals(True)
+            if np.float32(self.ui.roiISRangeWidget.minimumValue) != np.float32(min_point[2]) or \
+               np.float32(self.ui.roiISRangeWidget.maximumValue) != np.float32(max_point[2]):
+                print(f"IS changed {self.ui.roiISRangeWidget.minimumValue},{self.ui.roiISRangeWidget.maximumValue} -> {min_point[2]},{max_point[2]} [{self.ui.roiISRangeWidget.minimum},{self.ui.roiISRangeWidget.maximum}]  center: {center} size: {size}")
+                self.ui.roiISRangeWidget.setValues(min_point[2], max_point[2])
+                modified = True
+            self.ui.roiISRangeWidget.blockSignals(False)
+
         if modified:
             self.roiUpdateModified(roi, True)
 
@@ -1977,7 +1989,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         metadata = self.sampleData.metadata
 
         trajectory = self.sampleData.geometry.get("full_trajectory", np.empty(0))
-        print(trajectory.shape)
 
         REC_MIN_X, REC_MIN_Y, REC_MIN_Z = metadata['REC_MIN_X'], metadata['REC_MIN_Y'], trajectory[0][2]
         REC_MAX_X, REC_MAX_Y, REC_MAX_Z = metadata['REC_MAX_X'], metadata['REC_MAX_Y'], trajectory[-1][2]
@@ -2138,7 +2149,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 self.setSensorImageData(self.sceneObjects.sinogramRangeStartSourceDetector, start_tex_data)
                 self.setSensorImageData(self.sceneObjects.sinogramRangeEndSourceDetector, end_tex_data)
                 end = time.time()
-                print(f"[DEBUG] Updating sinogram range sensor texture took: {end - start} s")
+                #print(f"[DEBUG] Updating sinogram range sensor texture took: {end - start} s")
 
         self.setSourceDetectorVisible(self.sceneObjects.sinogramRangeStartSourceDetector, is_visible)
         self.setSourceDetectorVisible(self.sceneObjects.sinogramRangeEndSourceDetector, is_visible)
@@ -2251,7 +2262,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         start = time.time()
         response_fast = self.session.get(f"{base}/get_sinogram_slice_fast/{index}")
         end = time.time()
-        print(f"[DEBUG] Download (fast) took {end-start} s {len(response_fast.content)/1000} kb")
+        #print(f"[DEBUG] Download (fast) took {end-start} s {len(response_fast.content)/1000} kb")
 
         if response_fast.status_code >= 400:
             print(f"Failed to load sinogram slice: {response_fast.headers}")
@@ -2264,7 +2275,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         img_data = np.array(img)
         img_data_mapped = img_data * ((sliceMax - sliceMin) / np.float32(255.0)) + sliceMin
         end = time.time()
-        print(f"[DEBUG] Decoding image took {end-start} s {img.size} {img.mode} {img_data_mapped.shape} {img_data_mapped.dtype}")
+        #print(f"[DEBUG] Decoding image took {end-start} s {img.size} {img.mode} {img_data_mapped.shape} {img_data_mapped.dtype}")
         return img_data_mapped
 
     def loadFullDetailSlice(self):

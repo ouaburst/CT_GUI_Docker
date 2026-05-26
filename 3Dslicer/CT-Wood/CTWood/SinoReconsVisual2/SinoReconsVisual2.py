@@ -1160,8 +1160,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         roi_data.roi_list_widget.setFlags(qt.Qt.ItemIsEditable | qt.Qt.ItemIsEnabled)
         roi_data.roi_list_widget.setData(qt.Qt.UserRole, roi_data)
 
-        self.setInteractive(roi_data.roi_list_widget, False)
-
         if self.ui.showROICheckbox.checkState() != qt.Qt.Checked:
             roi_data.roi_node.GetMarkupsDisplayNode().Visibility3DOff()
 
@@ -1175,6 +1173,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.ui.reconstructionROIComboBox.addItem(roi_data.name, roi_data)
 
         roi_data.original_path = file
+
+        self.setInteractive(roi_data.roi_list_widget, False)
 
         self.roiUpdateModified(roi_data, True)
 
@@ -1310,13 +1310,12 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             # - Julius Häger 2026-05-20
             color = self.settings.value("SinoReconsVisual2/ROI/SelectedColor")
             roiDisplayNode.SetSelectedColor(color.redF(), color.greenF(), color.blueF())
-            roiDisplayNode.SetActiveColor(color.redF(), color.greenF(), color.blueF())
+            roiDisplayNode.SetActiveColor(1.0, color.greenF(), color.blueF())
             roiDisplayNode.SetFillOpacity(color.alphaF() * 0.8) # FIXME: Separate setting for this?
             roiDisplayNode.SetOutlineOpacity(color.alphaF())
 
             roiDisplayNode.SetHandlesInteractive(True)
-            roiDisplayNode.SetTranslationHandleVisibility(False)
-            roiDisplayNode.SetScaleHandleVisibility(True)
+            roiNode.SetLocked(0)
 
             print(f"selectable: {roiDisplayNode.GetSelectable()} selected {roiDisplayNode.GetSelected()}")
 
@@ -1325,11 +1324,12 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         else:
             color = self.settings.value("SinoReconsVisual2/ROI/InactiveColor")
             roiDisplayNode.SetSelectedColor(color.redF(), color.greenF(), color.blueF())
-            roiDisplayNode.SetActiveColor(color.redF(), color.greenF(), color.blueF())
+            roiDisplayNode.SetActiveColor(1.0, color.greenF(), color.blueF())
             roiDisplayNode.SetFillOpacity(color.alphaF() * 0.8) # FIXME: Separate setting for this?
             roiDisplayNode.SetOutlineOpacity(color.alphaF())
 
             roiDisplayNode.SetHandlesInteractive(False)
+            roiNode.SetLocked(1)
             
             for i in range(roiNode.GetNumberOfControlPoints()):
                 roiNode.SetNthControlPointVisibility(i, False)
@@ -1589,10 +1589,13 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             itemData: ROIData = item.data(qt.Qt.UserRole)
             if itemData.roi_node == roi_node:
                 return itemData
+        print(f"Could not find {roi_node} in roiListWidget (count {self.ui.roiListWidget.count})...")
         return None
     
     # Called when the roi is changed using the 3D/2D widgets.
     def roiNodeChanged(self, roiNode, event):
+        print(event, type(event))
+
         # FIXME: Only change the UI if this is the active roiNode?
         center = roiNode.GetCenter()
         size = roiNode.GetSize()
@@ -1603,47 +1606,49 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         roi = self.getROIDataFromNode(roiNode)
         assert roi != None
         
-        try:
-            # FIXME: Very inefficient to set the coordinates through strings
-            # FIXME: The coordinate string that is returned is rounded to the number of decimals used to display
-            # which means we will never be able to accurately get the values from the control... so the modified check will fail.
-            self.ui.roiCenterCoordinateWidget.blockSignals(True)
-            old_center = [self.ui.roiCenterCoordinateWidget.getCoordinate(0), self.ui.roiCenterCoordinateWidget.getCoordinate(1), self.ui.roiCenterCoordinateWidget.getCoordinate(2)]
-            if old_center != [center.GetX(),center.GetY(),center.GetZ()]:
-                print(f"change center! {old_center} -> {[center.GetX(),center.GetY(),center.GetZ()]}")
-                self.ui.roiCenterCoordinateWidget.setCoordinates(center.GetX(), center.GetY(), center.GetZ(), 0)
-                modified = True
-            self.ui.roiCenterCoordinateWidget.blockSignals(False)
+        # If this ROI is not the selected ROI then we don't update the UI.
+        if self.ui.roiListWidget.currentItem().data(qt.Qt.UserRole) == roi:
+            try:
+                # FIXME: Very inefficient to set the coordinates through strings
+                # FIXME: The coordinate string that is returned is rounded to the number of decimals used to display
+                # which means we will never be able to accurately get the values from the control... so the modified check will fail.
+                self.ui.roiCenterCoordinateWidget.blockSignals(True)
+                old_center = [self.ui.roiCenterCoordinateWidget.getCoordinate(0), self.ui.roiCenterCoordinateWidget.getCoordinate(1), self.ui.roiCenterCoordinateWidget.getCoordinate(2)]
+                if old_center != [center.GetX(),center.GetY(),center.GetZ()]:
+                    print(f"change center! {old_center} -> {[center.GetX(),center.GetY(),center.GetZ()]}")
+                    self.ui.roiCenterCoordinateWidget.setCoordinates(center.GetX(), center.GetY(), center.GetZ(), 0)
+                    modified = True
+                self.ui.roiCenterCoordinateWidget.blockSignals(False)
 
-            self.ui.roiSizeCoordinateWidget.blockSignals(True)
-            old_size = [self.ui.roiSizeCoordinateWidget.getCoordinate(0), self.ui.roiSizeCoordinateWidget.getCoordinate(1), self.ui.roiSizeCoordinateWidget.getCoordinate(2)]
-            if old_size != [size[0],size[1],size[2]]:
-                print(f"change size! {old_size} -> {[size[0],size[1],size[2]]}")
-                self.ui.roiSizeCoordinateWidget.setCoordinates(size[0],size[1],size[2], 0)
+                self.ui.roiSizeCoordinateWidget.blockSignals(True)
+                old_size = [self.ui.roiSizeCoordinateWidget.getCoordinate(0), self.ui.roiSizeCoordinateWidget.getCoordinate(1), self.ui.roiSizeCoordinateWidget.getCoordinate(2)]
+                if old_size != [size[0],size[1],size[2]]:
+                    print(f"change size! {old_size} -> {[size[0],size[1],size[2]]}")
+                    self.ui.roiSizeCoordinateWidget.setCoordinates(size[0],size[1],size[2], 0)
 
-                modified = True
-            self.ui.roiSizeCoordinateWidget.blockSignals(False)
-        except:
-            # Current version of slicer doesn't have the setCoordinate PR merged yet.
-            # See: https://github.com/commontk/CTK/pull/1417
+                    modified = True
+                self.ui.roiSizeCoordinateWidget.blockSignals(False)
+            except:
+                # Current version of slicer doesn't have the setCoordinate PR merged yet.
+                # See: https://github.com/commontk/CTK/pull/1417
 
-            self.ui.roiCenterCoordinateWidget.blockSignals(True)
-            old_center = self.readValuesFromCoordinateWidget(self.ui.roiCenterCoordinateWidget)
-            if old_center != [center.GetX(),center.GetY(),center.GetZ()]:
-                print(f"change center! {old_center} -> {[center.GetX(),center.GetY(),center.GetZ()]}")
-                self.writeValuesToCoordinateWidget(self.ui.roiCenterCoordinateWidget, [center.GetX(),center.GetY(),center.GetZ()])
-                modified = True
-            self.ui.roiCenterCoordinateWidget.blockSignals(False)
+                self.ui.roiCenterCoordinateWidget.blockSignals(True)
+                old_center = self.readValuesFromCoordinateWidget(self.ui.roiCenterCoordinateWidget)
+                if old_center != [center.GetX(),center.GetY(),center.GetZ()]:
+                    print(f"change center! {old_center} -> {[center.GetX(),center.GetY(),center.GetZ()]}")
+                    self.writeValuesToCoordinateWidget(self.ui.roiCenterCoordinateWidget, [center.GetX(),center.GetY(),center.GetZ()])
+                    modified = True
+                self.ui.roiCenterCoordinateWidget.blockSignals(False)
 
-            self.ui.roiSizeCoordinateWidget.blockSignals(True)
-            old_size = self.readValuesFromCoordinateWidget(self.ui.roiSizeCoordinateWidget)
-            if old_size != [size[0],size[1],size[2]]:
-                print(f"change size! {old_size} -> {[size[0],size[1],size[2]]}")
-                self.writeValuesToCoordinateWidget(self.ui.roiSizeCoordinateWidget, size)
-                if roi.auto_resolution:
-                    self.roiUpdateResolution(roi)
-                modified = True
-            self.ui.roiSizeCoordinateWidget.blockSignals(False)
+                self.ui.roiSizeCoordinateWidget.blockSignals(True)
+                old_size = self.readValuesFromCoordinateWidget(self.ui.roiSizeCoordinateWidget)
+                if old_size != [size[0],size[1],size[2]]:
+                    print(f"change size! {old_size} -> {[size[0],size[1],size[2]]}")
+                    self.writeValuesToCoordinateWidget(self.ui.roiSizeCoordinateWidget, size)
+                    if roi.auto_resolution:
+                        self.roiUpdateResolution(roi)
+                    modified = True
+                self.ui.roiSizeCoordinateWidget.blockSignals(False)
             
         if modified:
             self.roiUpdateModified(roi, True)

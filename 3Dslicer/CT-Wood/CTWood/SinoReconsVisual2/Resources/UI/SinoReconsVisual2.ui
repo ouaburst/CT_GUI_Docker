@@ -20,7 +20,7 @@
      <verstretch>0</verstretch>
     </sizepolicy>
    </property>
-   <layout class="QVBoxLayout" name="verticalLayout">
+   <layout class="QHBoxLayout" name="horizontalLayout_2">
     <item>
      <widget class="QScrollArea" name="scrollArea">
       <property name="widgetResizable">
@@ -30,9 +30,9 @@
        <property name="geometry">
         <rect>
          <x>0</x>
-         <y>0</y>
+         <y>-196</y>
          <width>694</width>
-         <height>1739</height>
+         <height>1491</height>
         </rect>
        </property>
        <property name="sizePolicy">
@@ -2844,6 +2844,16 @@
               <property name="bottomMargin">
                <number>0</number>
               </property>
+              <item row="0" column="0">
+               <widget class="QLabel" name="reconstructionROILabel">
+                <property name="toolTip">
+                 <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;The region of interest to use for reconstruction.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                </property>
+                <property name="text">
+                 <string>Region of interest</string>
+                </property>
+               </widget>
+              </item>
               <item row="0" column="1">
                <widget class="ctkComboBox" name="reconstructionROIComboBox">
                 <property name="toolTip">
@@ -2877,170 +2887,7 @@
                 </item>
                </widget>
               </item>
-              <item row="5" column="0">
-               <widget class="QLabel" name="reconstructionMethodLabel">
-                <property name="toolTip">
-                 <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;The reconstruction method to use.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-                </property>
-                <property name="text">
-                 <string>Reconstruction method</string>
-                </property>
-               </widget>
-              </item>
-              <item row="5" column="1">
-               <widget class="QComboBox" name="reconstructionMethodComboBox">
-                <property name="toolTip">
-                 <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;The reconstruction method to use.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-                </property>
-               </widget>
-              </item>
-              <item row="7" column="0" colspan="2">
-               <widget class="QGroupBox" name="fbpParameterGroupBox">
-                <property name="sizePolicy">
-                 <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-                  <horstretch>0</horstretch>
-                  <verstretch>0</verstretch>
-                 </sizepolicy>
-                </property>
-                <property name="title">
-                 <string>FBP Parameters</string>
-                </property>
-                <layout class="QFormLayout" name="formLayout_2">
-                 <item row="0" column="0">
-                  <widget class="QLabel" name="label_filterType">
-                   <property name="text">
-                    <string>Filter Type:</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="0" column="1">
-                  <widget class="QComboBox" name="filterTypeComboBox"/>
-                 </item>
-                 <item row="1" column="0">
-                  <widget class="QLabel" name="label_frequencyScaling">
-                   <property name="text">
-                    <string>Frequency Scaling:</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="1" column="1">
-                  <widget class="QDoubleSpinBox" name="frequencyScalingSpinBox"/>
-                 </item>
-                 <item row="2" column="0">
-                  <widget class="QCheckBox" name="paddingCheckBox">
-                   <property name="text">
-                    <string>Enable Padding</string>
-                   </property>
-                  </widget>
-                 </item>
-                </layout>
-               </widget>
-              </item>
-              <item row="9" column="0" colspan="2">
-               <widget class="QGroupBox" name="landweberParameterGroupBox">
-                <property name="sizePolicy">
-                 <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-                  <horstretch>0</horstretch>
-                  <verstretch>0</verstretch>
-                 </sizepolicy>
-                </property>
-                <property name="title">
-                 <string>Landweber Parameters</string>
-                </property>
-                <layout class="QFormLayout" name="formLayout_3">
-                 <item row="0" column="0">
-                  <widget class="QLabel" name="label_iterations">
-                   <property name="sizePolicy">
-                    <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-                     <horstretch>0</horstretch>
-                     <verstretch>0</verstretch>
-                    </sizepolicy>
-                   </property>
-                   <property name="text">
-                    <string>Iterations:</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="0" column="1">
-                  <widget class="QSpinBox" name="iterationsSpinBox">
-                   <property name="sizePolicy">
-                    <sizepolicy hsizetype="Minimum" vsizetype="Preferred">
-                     <horstretch>0</horstretch>
-                     <verstretch>0</verstretch>
-                    </sizepolicy>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="1" column="0">
-                  <widget class="QLabel" name="label_relaxation">
-                   <property name="sizePolicy">
-                    <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
-                     <horstretch>0</horstretch>
-                     <verstretch>0</verstretch>
-                    </sizepolicy>
-                   </property>
-                   <property name="text">
-                    <string>Relaxation:</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="1" column="1">
-                  <widget class="QDoubleSpinBox" name="relaxationSpinBox">
-                   <property name="sizePolicy">
-                    <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
-                     <horstretch>0</horstretch>
-                     <verstretch>0</verstretch>
-                    </sizepolicy>
-                   </property>
-                  </widget>
-                 </item>
-                </layout>
-               </widget>
-              </item>
-              <item row="10" column="0">
-               <widget class="QCheckBox" name="useCacheCheckbox">
-                <property name="toolTip">
-                 <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Whether to use the odl sinogram cache or not. See odl RayTransform use_cache documentation for details.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-                </property>
-                <property name="text">
-                 <string>Use Cache</string>
-                </property>
-                <property name="checked">
-                 <bool>true</bool>
-                </property>
-               </widget>
-              </item>
-              <item row="13" column="0" colspan="2">
-               <widget class="QPushButton" name="loadReconstructionDataButton">
-                <property name="enabled">
-                 <bool>false</bool>
-                </property>
-                <property name="text">
-                 <string>Load reconstruction data</string>
-                </property>
-               </widget>
-              </item>
-              <item row="0" column="0">
-               <widget class="QLabel" name="reconstructionROILabel">
-                <property name="toolTip">
-                 <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;The region of interest to use for reconstruction.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-                </property>
-                <property name="text">
-                 <string>Region of interest</string>
-                </property>
-               </widget>
-              </item>
-              <item row="12" column="0" colspan="2">
-               <widget class="QPushButton" name="runReconstructionButton">
-                <property name="toolTip">
-                 <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Run reconstruction for the region of interest selected for reconstruction.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-                </property>
-                <property name="text">
-                 <string>Run reconstruction</string>
-                </property>
-               </widget>
-              </item>
-              <item row="4" column="0" colspan="2">
+              <item row="3" column="0" colspan="2">
                <widget class="QLabel" name="reconstructionROIMetadataLabel">
                 <property name="toolTip">
                  <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:600;&quot;&gt;Input sinogram size&lt;/span&gt;: The size of the sinogram subset that is specified by the sinogram range of this region of interest.&lt;/p&gt;&lt;p&gt;&lt;span style=&quot; font-weight:600;&quot;&gt;Output volume size&lt;/span&gt;: The size of the reconstructed volume, depends on the resolution of the selected region of interest.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
@@ -3059,6 +2906,69 @@
                 </property>
                 <property name="indent">
                  <number>5</number>
+                </property>
+               </widget>
+              </item>
+              <item row="4" column="0">
+               <widget class="QLabel" name="reconstructionMethodLabel">
+                <property name="toolTip">
+                 <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;The reconstruction method to use.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                </property>
+                <property name="text">
+                 <string>Reconstruction method</string>
+                </property>
+               </widget>
+              </item>
+              <item row="4" column="1">
+               <widget class="QComboBox" name="reconstructionMethodComboBox">
+                <property name="toolTip">
+                 <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;The reconstruction method to use.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                </property>
+               </widget>
+              </item>
+              <item row="5" column="0" colspan="2">
+               <widget class="QStackedWidget" name="reconstructionParameterStackedWidget">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <property name="currentIndex">
+                 <number>-1</number>
+                </property>
+               </widget>
+              </item>
+              <item row="6" column="0">
+               <widget class="QCheckBox" name="useCacheCheckbox">
+                <property name="toolTip">
+                 <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Whether to use the odl sinogram cache or not. See odl RayTransform use_cache documentation for details.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                </property>
+                <property name="text">
+                 <string>Use Cache</string>
+                </property>
+                <property name="checked">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item row="8" column="0" colspan="2">
+               <widget class="QPushButton" name="runReconstructionButton">
+                <property name="toolTip">
+                 <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Run reconstruction for the region of interest selected for reconstruction.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                </property>
+                <property name="text">
+                 <string>Run reconstruction</string>
+                </property>
+               </widget>
+              </item>
+              <item row="9" column="0" colspan="2">
+               <widget class="QPushButton" name="loadReconstructionDataButton">
+                <property name="enabled">
+                 <bool>false</bool>
+                </property>
+                <property name="text">
+                 <string>Load reconstruction data</string>
                 </property>
                </widget>
               </item>

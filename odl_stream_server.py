@@ -727,16 +727,6 @@ def run_reconstruction(req: ReconRequest, request: Request):
         "--output_folder", str(IMAGES_DIR),
     ]
 
-    #out_name = f"{req.specie}_{req.tree_ID}_{req.disk_ID}_{method}_working.nrrd"
-    #out_path = IMAGES_DIR / out_name
-    #cmd = [
-    #    "python", "-u", "reconstruction_working.py",
-    #    "--data_dir", str(sample_dir),
-    #    "--metadata_path", str(sample_dir / "metadata.json"),
-    #    "--reconstruction_method", method,
-    #    "--output_dir", str(IMAGES_DIR),
-    #]
-
     # Pass optional parameters as a JSON blob to the script
     if req.parameters:
         cmd += ["--parameters", json.dumps(req.parameters)]

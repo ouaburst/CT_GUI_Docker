@@ -240,6 +240,9 @@ def getFirstChildOfType(widget: qt.QWidget, ofType: type) -> qt.QObject:
 class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     sceneObjects: Vtk3DSceneObjects
     sampleData: SampleData
+    reconstructionSettingsWidgets: dict[str, qt.QWidget] = {}
+    # Server configuration json, see slicer_backend_config.json
+    config: dict
 
     def __init__(self, parent=None):
         ScriptedLoadableModuleWidget.__init__(self, parent)
@@ -254,15 +257,15 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
         self.session = requests.Session()
 
-        loaded = qt.QResource.registerResource(self.resourcePath("sinoReconsVisual.rcc"))
-        print("loaded qrc:", loaded)
+        qt.QResource.registerResource(self.resourcePath("sinoReconsVisual.rcc"))
 
         # FIXME: I'm unable to figure out how to make resources from qrc files work...
         # - Julius Häger 2026-05-13
         qt.QIcon.setThemeSearchPaths([":/icons"])
         qt.QIcon.setThemeName("light")
 
-        print(slicer.app.settingsDialog().settingChanged.connect(self.onSettingsChanged))
+        # Listen to style changes to we can switch between light and dark icons.
+        slicer.app.settingsDialog().settingChanged.connect(self.onSettingsChanged)
 
         # Hide the default box
         slicer.app.layoutManager().threeDWidget(0).mrmlViewNode().SetBoxVisible(0)
@@ -298,6 +301,18 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.uiWidget = slicer.util.loadUI(self.resourcePath("UI/SinoReconsVisual2.ui"))
         self.ui = slicer.util.childWidgetVariables(self.uiWidget)
         self.layout.addWidget(self.uiWidget)
+
+        # Automatically load all reconstruction method widgets
+        for path in Path(self.resourcePath('UI/ReconstructionMethods')).glob('*.ui'):
+            print(path.stem, path)
+            self.reconstructionSettingsWidgets[path.stem] = slicer.util.loadUI(path)
+
+        # Every time the widget inside the stacked widget changes we update the height to match the current widget.
+        self.ui.reconstructionParameterStackedWidget.currentChanged.connect(lambda: self.ui.reconstructionParameterStackedWidget.setFixedHeight(max(0, self.ui.reconstructionParameterStackedWidget.currentWidget().sizeHint.height())))
+
+        for k in self.reconstructionSettingsWidgets:
+            if self.reconstructionSettingsWidgets[k] != None:
+                self.ui.reconstructionParameterStackedWidget.addWidget(self.reconstructionSettingsWidgets[k])
 
         self.registerSinogramLayout()
 
@@ -527,8 +542,16 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
     # -----------------------------
     def onReconstructionMethodChanged(self, method):
         method = (method or "").lower()
-        self.ui.fbpParameterGroupBox.setVisible(method == "fbp")
-        self.ui.landweberParameterGroupBox.setVisible(method == "landweber")
+        if method in self.reconstructionSettingsWidgets:
+            self.ui.reconstructionParameterStackedWidget.setCurrentWidget(self.reconstructionSettingsWidgets[method])
+            #self.reconstructionSettingsWidgets[method].adjustSize()
+            #for k in self.reconstructionSettingsWidgets:
+            #    self.reconstructionSettingsWidgets[k].adjustSize()
+        else:
+            print("Unknown method '{method}', we don't have a parameter widget for this method.")
+        
+        #self.ui.fbpParameterGroupBox.setVisible(method == "fbp")
+        #self.ui.landweberParameterGroupBox.setVisible(method == "landweber")
 
     def _parse_selected_sample(self):
         """Return (tree_ID, disk_ID) from UI selection."""
@@ -547,6 +570,56 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             stream_nrrd_from_url(filename, base)
         except Exception as e:
             slicer.util.errorDisplay(f"Failed to parse sample.\nError: {e}", windowTitle="Parsing Error")
+
+    def getReconstructionMethodParameters(self) -> dict:
+        params = {}
+        methodName = (self.ui.reconstructionMethodComboBox.currentText or "").lower()
+        method: dict|None = None
+        for m in self.config['reconstruction_methods']:
+            if m['name'] == methodName:
+                method = m
+        if method == None:
+            logging.error(f"Invalid reconstruction method '{methodName}', can't create reconstruction paramters.")
+            return {}
+
+        widget = self.reconstructionSettingsWidgets[methodName]
+
+        for parameterName in method['parameters']:
+            parameter = method['parameters'][parameterName]
+            parameterWidget: qt.QWidget = widget.findChild(qt.QWidget, parameterName)
+            if parameterWidget == None:
+                logging.error(f"Could not find widget for parameter '{parameterName}', please add a widget called '{parameterName}' to the '{widget}' widget.")
+                continue
+            if 'type' not in parameter:
+                logging.error(f"Parameter '{parameterName}' doesn't have a type, please add the type of the parameter widget to the parameter definiton.")
+            match parameter['type']:
+                case 'QComboBox':
+                    if type(parameterWidget) is not qt.QComboBox:
+                        logging.error(f"The widget for parameter '{parameterName}' is of type {type(parameterWidget)} instead of the expected {qt.QComboBox} type.")
+                    comboBox: qt.QComboBox = parameterWidget
+                    params[parameterName] = comboBox.currentText
+                case 'QDoubleSpinBox':
+                    if type(parameterWidget) is not qt.QDoubleSpinBox:
+                        logging.error(f"The widget for parameter '{parameterName}' is of type {type(parameterWidget)} instead of the expected {qt.QDoubleSpinBox} type.")
+                    spinBox: qt.QDoubleSpinBox = parameterWidget
+                    params[parameterName] = spinBox.value
+                case 'QSpinBox':
+                    if type(parameterWidget) is not qt.QSpinBox:
+                        logging.error(f"The widget for parameter '{parameterName}' is of type {type(parameterWidget)} instead of the expected {qt.QSpinBox} type.")
+                    spinBox: qt.QSpinBox = parameterWidget
+                    params[parameterName] = spinBox.value
+                case 'QCheckBox':
+                    if type(parameterWidget) is not qt.QCheckBox:
+                        logging.error(f"The widget for parameter '{parameterName}' is of type {type(parameterWidget)} instead of the expected {qt.QCheckBox} type.")
+                    checkBox: qt.QCheckBox = parameterWidget
+                    params[parameterName] = checkBox.checkState() == qt.Qt.Checked
+                case _:
+                    logging.error(f"Unknown parameter widget type '{parameter['type']}', please implement this widget type.")
+
+        for jsonParameterName in method.get('json_parameters', []):
+            params[jsonParameterName] = method['json_parameters'][jsonParameterName]
+
+        return params
 
     def onRunReconstructionClicked(self):
         """
@@ -571,36 +644,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
         # Method + parameters
         method = (self.ui.reconstructionMethodComboBox.currentText or "").lower()
-        params = {}
+        params = self.getReconstructionMethodParameters()
 
-        if method == "fbp":
-            # Map UI filter to ODL name
-            try:
-                filt = _normalize_fbp_filter(self.ui.filterTypeComboBox.currentText)
-            except NameError:
-                # fallback if helper not present
-                filt = (self.ui.filterTypeComboBox.currentText or "ram-lak").strip().lower().replace(" ", "-")
-            params["filter_type"] = filt
-            params["frequency_scaling"] = float(self.ui.frequencyScalingSpinBox.value)
-            if self.ui.paddingCheckBox.isChecked():
-                params["padding"] = True
-
-            # IMPORTANT: do NOT add progress_* to FBP
-        elif method == "landweber":
-            params["niter"] = int(self.ui.iterationsSpinBox.value)
-            params["omega"] = float(self.ui.relaxationSpinBox.value)
-
-            # progress_* only for iterative methods
-            try:
-                progress_every = int(self.ui.progressEverySpinBox.value)
-            except Exception:
-                progress_every = 5
-            params["progress_every"] = progress_every
-        else:
-            # adjoint or other single-shot methods: no extra params
-            pass
-
-        trajectory = self.sampleData.geometry.get("full_trajectory", np.empty(0))
         if self.ui.reconstructionROIComboBox.currentData != None:
             itemData: ROIData = self.ui.reconstructionROIComboBox.currentData
             center = np.array(itemData.roi_node.GetCenter())
@@ -623,6 +668,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         else:
             # Invalid entry or we've selected the "Whole" entry.
             metadata = self.sampleData.metadata
+            trajectory = self.sampleData.geometry.get("full_trajectory", np.empty(0))
             params["REC_MIN_X"] = metadata['REC_MIN_X']
             params["REC_MIN_Y"] = metadata["REC_MIN_Y"]
             params["REC_MIN_Z"] = trajectory[0][2]
@@ -746,7 +792,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 progress.close()
             print(traceback.format_exc())
             kwargs = {}
-            if e.response != None:
+            if e.response != None and 'stderr' in e.response.json():
                 kwargs['detailedText'] = f"{e.response.json()['stderr']}"
             slicer.util.errorDisplay(
                 f"Failed to start reconstruction:\n{e}",
@@ -758,7 +804,61 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 progress.close()
             print(traceback.format_exc())
             slicer.util.errorDisplay(f"Reconstruction failed:\n{e}", windowTitle="Reconstruction Error")
-        
+    
+    def populateReconstructionMethods(self, config):
+        self.ui.reconstructionMethodComboBox.clear()
+        for method in config['reconstruction_methods']:
+            methodName = method['name']
+            self.ui.reconstructionMethodComboBox.addItem(methodName)
+
+            if methodName not in self.reconstructionSettingsWidgets:
+                logging.error(f"Could not find settings widget for reconstruction method '{methodName}', please add a settings widget for this method.")
+                continue
+            widget = self.reconstructionSettingsWidgets[methodName]
+
+            for parameterName in method['parameters']:
+                parameter = method['parameters'][parameterName]
+                parameterWidget: qt.QWidget = widget.findChild(qt.QWidget, parameterName)
+                if parameterWidget == None:
+                    logging.error(f"Could not find widget for parameter '{parameterName}', please add a widget called '{parameterName}' to the '{widget}' widget.")
+                    continue
+                if 'type' not in parameter:
+                    logging.error(f"Parameter '{parameterName}' doesn't have a type, please add the type of the parameter widget to the parameter definiton.")
+                match parameter['type']:
+                    case 'QComboBox':
+                        if type(parameterWidget) is not qt.QComboBox:
+                            logging.error(f"The widget for parameter '{parameterName}' is of type {type(parameterWidget)} instead of the expected {qt.QComboBox} type.")
+                        comboBox: qt.QComboBox = parameterWidget
+                        for value in parameter['values']:
+                            comboBox.addItem(value)
+                    case 'QDoubleSpinBox':
+                        if type(parameterWidget) is not qt.QDoubleSpinBox:
+                            logging.error(f"The widget for parameter '{parameterName}' is of type {type(parameterWidget)} instead of the expected {qt.QDoubleSpinBox} type.")
+                        spinBox: qt.QDoubleSpinBox = parameterWidget
+                        spinBox.setMinimum(parameter['value']['min'])
+                        spinBox.setMaximum(parameter['value']['max'])
+                        spinBox.setSingleStep(parameter['value']['step'])
+                        spinBox.setValue(parameter['value']['default'])
+                    case 'QSpinBox':
+                        if type(parameterWidget) is not qt.QSpinBox:
+                            logging.error(f"The widget for parameter '{parameterName}' is of type {type(parameterWidget)} instead of the expected {qt.QSpinBox} type.")
+                        spinBox: qt.QSpinBox = parameterWidget
+                        spinBox.setMinimum(parameter['value']['min'])
+                        spinBox.setMaximum(parameter['value']['max'])
+                        spinBox.setSingleStep(parameter['value']['step'])
+                        spinBox.setValue(parameter['value']['default'])
+                    case 'QCheckBox':
+                        if type(parameterWidget) is not qt.QCheckBox:
+                            logging.error(f"The widget for parameter '{parameterName}' is of type {type(parameterWidget)} instead of the expected {qt.QCheckBox} type.")
+                        checkBox: qt.QCheckBox = parameterWidget
+                        if 'value' not in parameter:
+                            logging.error(f"Required key 'value' was not present on method '{methodName}'s parameter '{parameterName}' of type '{type(parameterWidget)}'")
+                            continue
+                        checkBox.setChecked(parameter['value'])
+                    case _:
+                        logging.error(f"Unknown parameter widget type '{parameter['type']}', please implement this widget type.")
+
+
     def onConnectToServerClicked(self):
         # Persist (and normalize) what the user entered before we request
         base = self._currentBaseUrl()
@@ -767,21 +867,10 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         try:
             response = self.session.get(config_url, timeout=5)
             response.raise_for_status()
-            config = response.json()
-
-            # Populate container/volume for completeness (from config)
-            #container_name = config.get("container_name", "")
-            #self.ui.containerSelectorComboBox.clear()
-            #if container_name:
-            #    self.ui.containerSelectorComboBox.addItem(container_name)
-
-            #volume_name = config.get("volume_name", "")
-            #self.ui.volumeSelectorComboBox.clear()
-            #if volume_name:
-            #    self.ui.volumeSelectorComboBox.addItem(volume_name)
+            self.config = response.json()
 
             # Populate sample combo box
-            samples = config.get("samples", [])
+            samples = self.config.get("samples", [])
             self.ui.sampleSelectorComboBox.clear()
             for sample in samples:
                 # expect keys: specie, tree_ID, disk_ID
@@ -791,42 +880,12 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.ui.sampleSelectorComboBox.setEnabled(True)
             self.ui.loadSampleButton.setEnabled(True)
 
-            # Populate reconstruction methods
-            recons = config.get("reconstruction_methods", [])
-            self.ui.reconstructionMethodComboBox.clear()
-            for r in recons:
-                self.ui.reconstructionMethodComboBox.addItem(r)
+            # Use the config to populate the reconstruction parameter widgets
+            self.populateReconstructionMethods(self.config)
 
             # Initial visibility for parameter groups
             selected_method = self.ui.reconstructionMethodComboBox.currentText
             self.onReconstructionMethodChanged(selected_method)
-
-            # FBP params
-            fbp_params = config.get("fbp_parameters", {})
-            self.ui.filterTypeComboBox.clear()
-            for f in fbp_params.get("filter_type", []):
-                self.ui.filterTypeComboBox.addItem(f)
-
-            freq = fbp_params.get("frequency_scaling", {})
-            self.ui.frequencyScalingSpinBox.setMinimum(freq.get("min", 0.0))
-            self.ui.frequencyScalingSpinBox.setMaximum(freq.get("max", 1.0))
-            self.ui.frequencyScalingSpinBox.setSingleStep(freq.get("step", 0.05))
-            self.ui.frequencyScalingSpinBox.setValue(freq.get("default", 1.0))
-            self.ui.paddingCheckBox.setChecked("Yes" in fbp_params.get("padding", []))
-
-            # Landweber params
-            landweber_params = config.get("landweber_parameters", {})
-            iters = landweber_params.get("iterations", {})
-            self.ui.iterationsSpinBox.setMinimum(iters.get("min", 1))
-            self.ui.iterationsSpinBox.setMaximum(iters.get("max", 500))
-            self.ui.iterationsSpinBox.setSingleStep(iters.get("step", 10))
-            self.ui.iterationsSpinBox.setValue(iters.get("default", 100))
-
-            relax = landweber_params.get("relaxation", {})
-            self.ui.relaxationSpinBox.setMinimum(relax.get("min", 0.001))
-            self.ui.relaxationSpinBox.setMaximum(relax.get("max", 1.0))
-            self.ui.relaxationSpinBox.setSingleStep(relax.get("step", 0.01))
-            self.ui.relaxationSpinBox.setValue(relax.get("default", 0.2))
 
             self.ui.statusLabel.setText('Status: <font color="green">Connected</font>')
 

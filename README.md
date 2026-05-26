@@ -31,9 +31,9 @@ This repository is under active development — features, modules, and interface
 -   **Loads CT sample data** (sinogram, angles, shifts, metadata) from the MITO dataset.
 -   **Builds ODL cone-beam geometry** for the scan (source, detector, curvature, pitch).
 -   Provides **API endpoints** to:
-    -   /stream_window → stream geometry and detector panels for visualization.
     -   /get_sinogram_slice/{index} → return a single projection as NRRD.
-    -   /full_geometry and /full_trajectory.json → serve precomputed geometry and source paths.
+    -   /get_sinogram_slice_fast/{index} → return a single projection as JPEG2000 image.
+    -   /full_trajectory.json → serve precomputed geometry and source paths.
     -   /select_sample → switch dataset (tree/disk).
     -   /run_reconstruction → execute reconstruction.py with chosen method (adjoint, FBP, Landweber).
 

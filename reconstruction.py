@@ -112,8 +112,8 @@ def main():
         
     elif args.reconstruction_method == 'landweber':
         # Retrieve iteration controls (with defaults)
-        niter = int(params.get('niter', 50))
-        omega = float(params.get('omega', 0.5))
+        iterations = int(params.get('iterations', 50))
+        omega = float(params.get('relaxation', 0.5))
 
         A = sample['A']
         # Ensure sinogram is an ODL element in A.range
@@ -121,7 +121,7 @@ def main():
         # Initialize reconstruction with zeros in the reconstruction space
         x = A.domain.zero()
 
-        _progress(f"[LW] Starting Landweber: niter={niter}, omega={omega}")
+        _progress(f"[LW] Starting Landweber: iterations={iterations}, omega={omega}")
         _progress("Checking space match…")
         _progress(f"  A.domain       : {A.domain}")
         _progress(f"  x.space        : {x.space}")
@@ -131,13 +131,13 @@ def main():
         # Landweber iterative scheme:
         #   x_{k+1} = x_k + omega * A^*(b - A x_k)
         pe = max(1, args.progress_every)
-        for it in range(niter):
+        for it in range(iterations):
             resid = sinogram - A(x)   # residual in data space
             x += omega * A.adjoint(resid)  # gradient step via adjoint
 
-            if ((it + 1) % pe == 0) or (it + 1 == niter):
-                pct = 100.0 * (it + 1) / niter
-                _progress(f"[LW] iter {it+1}/{niter}  ({pct:.1f}%)")
+            if ((it + 1) % pe == 0) or (it + 1 == iterations):
+                pct = 100.0 * (it + 1) / iterations
+                _progress(f"[LW] iter {it+1}/{iterations}  ({pct:.1f}%)")
 
         reconstruction = x
         _progress("[LW] Done.")

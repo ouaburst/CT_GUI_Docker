@@ -59,21 +59,6 @@ def normalize_base_url(url: str) -> str:
         url = "http://" + url
     return url.rstrip("/")
 
-def _normalize_fbp_filter(name: str) -> str:
-    """Map UI filter labels to ODL-accepted names."""
-    key = (name or "").strip().lower()
-    mapping = {
-        "ram-lak": "ram-lak",
-        "ram lak": "ram-lak",
-        "ramlak": "ram-lak",
-        "shepp-logan": "shepp-logan",
-        "shepp logan": "shepp-logan",
-        "cosine": "cosine",
-        "hamming": "hamming",
-        "hann": "hann",
-    }
-    return mapping.get(key, "ram-lak")
-
 def get_icons_folder() -> str:
     return os.path.join(os.path.dirname(__file__), "Resources", "Icons")
 
@@ -2450,9 +2435,9 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 # -----------------------------
 # HTTP helpers (use saved base URL)
 # -----------------------------
-def stream_nrrd_from_url(filename, base_url: Optional[str] = None, progress_dialog: qt.QProgressDialog = None) -> slicer.vtkMRMLVolumeNode:
+def stream_nrrd_from_url(filename, base_url: str, progress_dialog: qt.QProgressDialog = None) -> slicer.vtkMRMLVolumeNode:
 
-    base = normalize_base_url(base_url or get_saved_base_url())
+    base = normalize_base_url(base_url)
     url = f"{base}/images/{filename}"
     temp_file_path = os.path.join(slicer.app.temporaryPath, filename)
     
@@ -2485,9 +2470,12 @@ def stream_nrrd_from_url(filename, base_url: Optional[str] = None, progress_dial
                         slicer.util.errorDisplay("Download was canceled by the user.", windowTitle="Download Canceled")
                         return None
 
-        volume_node = slicer.util.loadVolume(temp_file_path)
+        # show: False so we can choose ourselves which slice views it appears in, important that we avoid messing with the "Gray" slice widget.
+        volume_node = slicer.util.loadVolume(temp_file_path, properties={"show": False})
         if volume_node:
-            slicer.app.layoutManager().sliceWidget("Gray").sliceLogic().GetSliceCompositeNode().SetBackgroundVolumeID(volume_node.GetID())
+            for view in ["Red", "Green", "Yellow"]:
+                slicer.app.layoutManager().sliceWidget(view).sliceLogic().GetSliceCompositeNode().SetBackgroundVolumeID(volume_node.GetID())
+                slicer.app.layoutManager().sliceWidget(view).sliceLogic().FitSliceToVolume(volume_node)
         else:
             print("Failed to load the NRRD volume.")
 

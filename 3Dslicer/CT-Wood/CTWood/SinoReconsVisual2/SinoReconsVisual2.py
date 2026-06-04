@@ -48,6 +48,7 @@ DEFAULT_BACKEND_URL = "http://b9398.research.ltu.se:8000"
 SETTINGS_KEY_SHOW_SOURCE_DETECTOR = "SinoReconsVisual2/ShowSourceDetector"
 SETTINGS_KEY_SHOW_SINOGRAM_ON_SENSOR = "SinoReconsVisual2/ShowSinogramOnSensor"
 SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST = "SinoReconsVisual2/ShowRegionsOfInterest"
+SETTINGS_KEY_SHOW_REGION_OF_INTEREST_CONTROLS = "SinoReconsVisual2/ShowRegionOfInterestControls"
 SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST_SOURCE_DETECTOR = "SinoReconsVisual2/ShowRegionsOfInterestSinogramRangeSourceDetector"
 
 def normalize_base_url(url: str) -> str:
@@ -353,7 +354,10 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.sceneObjects = self.createSceneObjects()
 
         self.ui.showROICheckbox.stateChanged.connect(self.showROIs)
-        self.ui.showROICheckbox.setChecked(self.settings.value(SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST, False))
+        self.ui.showROICheckbox.setChecked(self.settings.value(SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST, True))
+
+        self.ui.showROIControlsCheckbox.stateChanged.connect(self.showROIControls)
+        self.ui.showROIControlsCheckbox.setChecked(self.settings.value(SETTINGS_KEY_SHOW_REGION_OF_INTEREST_CONTROLS, True))
 
         self.ui.showROISinogramRangeSourceDetectorCheckBox.stateChanged.connect(self.showROISinogramRangeSourceDetectorStateChanged)
         self.ui.showROISinogramRangeSourceDetectorCheckBox.setChecked(self.settings.value(SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST_SOURCE_DETECTOR, True))
@@ -989,7 +993,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             print(traceback.format_exc())
             slicer.util.errorDisplay(f"Failed to load full dataset:\n{e}")
 
-    def showROIs(self, state : int):
+    def showROIs(self, state: int):
         if state == qt.Qt.Checked:
             self.settings.setValue(SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST, True)
             for row in range(self.ui.roiListWidget.count):
@@ -1003,22 +1007,23 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 itemData: ROIData = item.data(qt.Qt.UserRole)
                 itemData.roi_node.GetMarkupsDisplayNode().Visibility3DOff()
 
+    def showROIControls(self, state: int):
+        if self.ui.roiListWidget.currentRow == -1:
+            return
+        item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
+        itemData: ROIData = item.data(qt.Qt.UserRole)
+        showControls: bool = state == qt.Qt.Checked
+        self.settings.setValue(SETTINGS_KEY_SHOW_REGION_OF_INTEREST_CONTROLS, showControls)
+        self.setROIEditControlVisibility(itemData, showControls)
+
     def showROISinogramRangeSourceDetectorStateChanged(self, state: int):
         visible = state == qt.Qt.Checked
         self.settings.setValue(SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST_SOURCE_DETECTOR, visible)
+        
         if self.ui.roiListWidget.currentRow != -1:
             item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
             itemData: ROIData = item.data(qt.Qt.UserRole)
-            if self.sceneObjects.sinogramRangeStartSourceDetector.sensorModelImage.GetPointData().GetScalars() == None:
-                slice_data = self.fetchSinogramSliceFast(itemData.sinogram_start_index)
-                tex_data = (np.iinfo(np.uint8).max * (slice_data - self.sampleData.sinogram_min_value) / (self.sampleData.sinogram_max_value - self.sampleData.sinogram_min_value)).astype(np.uint8)
-                self.setSensorImageData(self.sceneObjects.sinogramRangeStartSourceDetector, tex_data)
-            if self.sceneObjects.sinogramRangeEndSourceDetector.sensorModelImage.GetPointData().GetScalars() == None:
-                slice_data = self.fetchSinogramSliceFast(itemData.sinogram_end_index)
-                tex_data = (np.iinfo(np.uint8).max * (slice_data - self.sampleData.sinogram_min_value) / (self.sampleData.sinogram_max_value - self.sampleData.sinogram_min_value)).astype(np.uint8)
-                self.setSensorImageData(self.sceneObjects.sinogramRangeStartSourceDetector, tex_data)
-        self.setSourceDetectorVisible(self.sceneObjects.sinogramRangeStartSourceDetector, visible)
-        self.setSourceDetectorVisible(self.sceneObjects.sinogramRangeEndSourceDetector, visible)
+            self.updateRoiSinogramRange(itemData.sinogram_start_index, itemData.sinogram_end_index, visible)
 
     class QListWidgetItemModifiedDelegate(qt.QStyledItemDelegate):
         def __init__(self, parent):
@@ -1275,7 +1280,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.ui.sinogramRangeWidget.blockSignals(True)
             self.ui.sinogramRangeWidget.setValues(itemData.sinogram_start_index, itemData.sinogram_end_index)
             self.ui.sinogramRangeWidget.blockSignals(False)
-            self.updateRoiSinogramRange(itemData.sinogram_start_index, itemData.sinogram_end_index, True)
+            self.updateRoiSinogramRange(itemData.sinogram_start_index, itemData.sinogram_end_index, self.ui.showROISinogramRangeSourceDetectorCheckBox.checked)
             self.updateROIMetadataLabel(self.ui.roiMetadataLabel, itemData)
 
             self.ui.roiResolutionCoordinateWidget.enabled = not itemData.auto_resolution
@@ -1287,6 +1292,16 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
         if previous != None:
             self.setInteractive(previous, False)
+
+    def setROIEditControlVisibility(self, itemData: ROIData, visible: bool):
+        roiNode = itemData.roi_node
+        roiDisplayNode = roiNode.GetMarkupsDisplayNode()
+
+        roiDisplayNode.SetHandlesInteractive(visible)
+        roiNode.SetLocked(1 if visible else 0)
+        
+        for i in range(roiNode.GetNumberOfControlPoints()):
+            roiNode.SetNthControlPointVisibility(i, visible)
 
     def setInteractive(self, listWidgetItem: qt.QListWidgetItem, enable: bool):
         itemData: ROIData = listWidgetItem.data(qt.Qt.UserRole)
@@ -1300,27 +1315,19 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             # - Julius Häger 2026-05-20
             color = self.settings.value("SinoReconsVisual2/ROI/SelectedColor")
             roiDisplayNode.SetSelectedColor(color.redF(), color.greenF(), color.blueF())
-            roiDisplayNode.SetActiveColor(1.0, color.greenF(), color.blueF())
+            roiDisplayNode.SetActiveColor(color.redF(), color.greenF(), color.blueF())
             roiDisplayNode.SetFillOpacity(color.alphaF() * 0.8) # FIXME: Separate setting for this?
             roiDisplayNode.SetOutlineOpacity(color.alphaF())
 
-            roiDisplayNode.SetHandlesInteractive(True)
-            roiNode.SetLocked(0)
-
-            for i in range(roiNode.GetNumberOfControlPoints()):
-                roiNode.SetNthControlPointVisibility(i, True)
+            self.setROIEditControlVisibility(itemData, self.ui.showROIControlsCheckbox.checked)
         else:
             color = self.settings.value("SinoReconsVisual2/ROI/InactiveColor")
             roiDisplayNode.SetSelectedColor(color.redF(), color.greenF(), color.blueF())
-            roiDisplayNode.SetActiveColor(1.0, color.greenF(), color.blueF())
+            roiDisplayNode.SetActiveColor(color.redF(), color.greenF(), color.blueF())
             roiDisplayNode.SetFillOpacity(color.alphaF() * 0.8) # FIXME: Separate setting for this?
             roiDisplayNode.SetOutlineOpacity(color.alphaF())
 
-            roiDisplayNode.SetHandlesInteractive(False)
-            roiNode.SetLocked(1)
-            
-            for i in range(roiNode.GetNumberOfControlPoints()):
-                roiNode.SetNthControlPointVisibility(i, False)
+            self.setROIEditControlVisibility(itemData, False)
 
     def _getSampleDirectory(self) -> Path:
         return Path(os.path.expanduser(f"~/Documents/SinoRecons/{self.sampleData.specie}_{self.sampleData.tree_ID}_{self.sampleData.disk_ID}"))

@@ -13,7 +13,7 @@ This repository is under active development — features, modules, and interface
 
 ## Architecture description
 
-![Pipeline Architecture: 3D Slicer with FastAPI Streaming and Reconstruction Server](Pipeline_Architecture.jpg)
+![Pipeline Architecture: 3D Slicer with FastAPI Streaming and Reconstruction Server](img/Pipeline_Architecture.jpg)
 
 ## Repository Structure
 
@@ -22,7 +22,7 @@ This repository is under active development — features, modules, and interface
     ├── reconstruction.py        # Standalone script to run reconstruction (adjoint, fbp, landweber)
     ├── odl_stream_server.py     # FastAPI server for streaming geometry/sinogram slices and running reconstructions
     ├── slicer_backend_config.json # Configuration file used to populate the menu in 3D Slicer
-    ├── Dockerfile               # The dockerfile    
+    ├── Dockerfile               # The dockerfile
     └── README.md
 
 ## Functionality Summary — odl_stream_server.py

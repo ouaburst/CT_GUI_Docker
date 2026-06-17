@@ -32,7 +32,7 @@
          <x>0</x>
          <y>0</y>
          <width>719</width>
-         <height>1281</height>
+         <height>1301</height>
         </rect>
        </property>
        <property name="sizePolicy">
@@ -2923,16 +2923,6 @@
                 </property>
                 <property name="text">
                  <string>Run reconstruction</string>
-                </property>
-               </widget>
-              </item>
-              <item row="9" column="0" colspan="2">
-               <widget class="QPushButton" name="loadReconstructionDataButton">
-                <property name="enabled">
-                 <bool>false</bool>
-                </property>
-                <property name="text">
-                 <string>Load reconstruction data</string>
                 </property>
                </widget>
               </item>

@@ -319,7 +319,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.ui.metadataTableWidget.setEditTriggers(0) # No editing
 
         self.ui.runReconstructionButton.clicked.connect(self.onRunReconstructionClicked)
-        self.ui.loadReconstructionDataButton.clicked.connect(self.onLoadReconstructionDataClicked)
 
         # FIXME: Change to currentIndexChanged...
         self.ui.reconstructionMethodComboBox.currentTextChanged.connect(self.onReconstructionMethodChanged)
@@ -550,16 +549,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         disk_ID = int(parts[1].strip())
         return tree_ID, disk_ID
 
-    def onLoadReconstructionDataClicked(self):
-        try:
-            tree_ID, disk_ID = self._parse_selected_sample()
-            method = (self.ui.reconstructionSelectorComboBox.currentText or "").lower()
-            filename = f"tree{tree_ID}_disk{disk_ID}_{method}.nrrd"
-            base = self._currentBaseUrl()
-            stream_nrrd_from_url(filename, base)
-        except Exception as e:
-            slicer.util.errorDisplay(f"Failed to parse sample.\nError: {e}", windowTitle="Parsing Error")
-
     def getReconstructionMethodParameters(self) -> dict:
         params = {}
         methodName = (self.ui.reconstructionMethodComboBox.currentText or "").lower()
@@ -775,6 +764,17 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 volume.SetSpacing(REC_SPACING_X, REC_SPACING_Y, REC_SPACING_Z)
 
                 volume.SetIJKToRASDirections([(1,0,0), (0,1,0), (0,0,1)])
+
+                # We need to center the slice views after moving the volume to the correct position for them
+                # to center on the right position.
+                for view in ["Red", "Green", "Yellow"]:
+                    widget = slicer.app.layoutManager().sliceWidget(view)
+                    widget.sliceLogic().GetSliceCompositeNode().SetBackgroundVolumeID(volume.GetID())
+                    widget.sliceController().fitSliceToBackground()
+
+                volRenLogic = slicer.modules.volumerendering.logic()
+                displayNode = volRenLogic.CreateDefaultVolumeRenderingNodes(volume)
+                displayNode.SetVisibility(True)
 
         except requests.exceptions.RequestException as e:
             if 'progress' in locals():
@@ -2494,11 +2494,7 @@ def stream_nrrd_from_url(filename, base_url: str, progress_dialog: qt.QProgressD
 
         # show: False so we can choose ourselves which slice views it appears in, important that we avoid messing with the "Gray" slice widget.
         volume_node = slicer.util.loadVolume(temp_file_path, properties={"show": False})
-        if volume_node:
-            for view in ["Red", "Green", "Yellow"]:
-                slicer.app.layoutManager().sliceWidget(view).sliceLogic().GetSliceCompositeNode().SetBackgroundVolumeID(volume_node.GetID())
-                slicer.app.layoutManager().sliceWidget(view).sliceLogic().FitSliceToVolume(volume_node)
-        else:
+        if volume_node is None:
             print("Failed to load the NRRD volume.")
 
         # Remove the temporary file

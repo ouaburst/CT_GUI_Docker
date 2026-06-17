@@ -2364,6 +2364,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
     def advanceSinogramSlice(self):
         self.ui.indexSlider.value += int(self.ui.playSpeedSlider.value)
+        if self.ui.indexSlider.value == self.ui.indexSlider.maximum:
+            self.ui.playButton.animateClick()
 
     # -----------------------------
     # Settings callbacks

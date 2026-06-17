@@ -1000,12 +1000,25 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
                 item = self.ui.roiListWidget.item(row)
                 itemData: ROIData = item.data(qt.Qt.UserRole)
                 itemData.roi_node.GetMarkupsDisplayNode().Visibility3DOn()
+
+            if self.ui.showROISinogramRangeSourceDetectorCheckBox.checked:
+                if self.ui.roiListWidget.currentRow != -1:
+                    item = self.ui.roiListWidget.item(self.ui.roiListWidget.currentRow)
+                    itemData: ROIData = item.data(qt.Qt.UserRole)
+                    self.updateRoiSinogramRange(itemData.sinogram_start_index, itemData.sinogram_end_index, True)
+
+            self.ui.showROISinogramRangeSourceDetectorCheckBox.enabled = True
+            self.ui.showROIControlsCheckbox.enabled = True
         else:
             self.settings.setValue(SETTINGS_KEY_SHOW_REGIONS_OF_INTEREST, False)
             for row in range(self.ui.roiListWidget.count):
                 item = self.ui.roiListWidget.item(row)
                 itemData: ROIData = item.data(qt.Qt.UserRole)
                 itemData.roi_node.GetMarkupsDisplayNode().Visibility3DOff()
+            self.updateRoiSinogramRange(0, 0, False)
+
+            self.ui.showROISinogramRangeSourceDetectorCheckBox.enabled = False
+            self.ui.showROIControlsCheckbox.enabled = False
 
     def showROIControls(self, state: int):
         if self.ui.roiListWidget.currentRow == -1:

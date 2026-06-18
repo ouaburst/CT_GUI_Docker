@@ -94,6 +94,7 @@ def _resolve_sample_dir(cfg: dict, specie: str, tree_ID: int, disk_ID: int) -> P
         ├─ shifts.npy
         └─ metadata.json
     """
+    # FIXME: real_datasets/ml_ready should be part of the config...
     vol_root = Path(cfg["volume_name"]) / "real_datasets" / "ml_ready"
     return vol_root / f"{specie}_{tree_ID}_{disk_ID}"
 
@@ -502,7 +503,8 @@ def select_sample(sel: SampleSelect):
 
         return {"status": "ok", "sample_dir": str(sample_dir), "frames": N, "sinogram_shape": sinogram.shape, "sinogram_min": float(sinogramMin), "sinogram_max": float(sinogramMax), "metadata": metadata}
     except Exception as e:
-        print(f"[ERROR] {e}")
+        import traceback
+        print(f"[ERROR] {traceback.format_exc()}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 def compress_sinogram_slice_jp2(i):

@@ -22,7 +22,7 @@ detector_partition = odl.uniform_partition([-np.pi/32, -20], [np.pi/32, 20], [51
 geometry = odl.applications.tomo.ConeBeamGeometry(
     angle_partition, detector_partition, src_radius=200,
     det_radius=200, det_curvature_radius=(400, None),
-    axis=[1, 0, 0], pitch=0)
+    axis=[0, 0, 1], pitch=0)
 
 # Ray transform (= forward projection).
 ray_trafo = odl.applications.tomo.RayTransform(reco_space, geometry)

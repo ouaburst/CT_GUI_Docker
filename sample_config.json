@@ -1,0 +1,6 @@
+{
+    "volume_name": "/media/Store-SSD",
+    "samples": [
+        {"specie": "phantom", "tree_ID": 1, "disk_ID": 1}
+    ]
+}

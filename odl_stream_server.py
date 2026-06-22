@@ -34,7 +34,7 @@ from filelock import FileLock, Timeout
 # ---------------------------
 # Globals (populated on load)
 # ---------------------------
-config: dict
+sample_config: dict
 sinogram: np.typing.NDArray[np.float32] # numpy array with shape (N, det_x, det_z)
 sinogramMin: np.float32 # Minimum value in the sinogram data
 sinogramMax: np.float32 # Maximum value in the sinogram data
@@ -61,21 +61,22 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 IMAGES_DIR = BASE_DIR / "images"
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
-CONFIG_PATH = BASE_DIR / "slicer_backend_config.json"
+RECONSTRUCTION_CONFIG_PATH = BASE_DIR / "reconstruction_methods.json"
+SAMPLE_CONFIG_PATH = BASE_DIR / "sample_config.json"
 FULL_GEOM_NPZ = OUTPUT_DIR / "full_geometry.npz"
 
 SINOGRAM_CACHE_DIR = OUTPUT_DIR / "sinogram_cache"
 
 
 #########################################################
-# _load_config
-# Load backend config JSON which describes available samples
+# _load_sample_config
+# Load sample config JSON which describes available samples
 # and the bind-mounted volume root.
 #########################################################
-def _load_config() -> dict:
-    if not CONFIG_PATH.exists():
-        raise FileNotFoundError(f"Config file not found: {CONFIG_PATH}")
-    with open(CONFIG_PATH) as f:
+def _load_sample_config() -> dict:
+    if not SAMPLE_CONFIG_PATH.exists():
+        raise FileNotFoundError(f"Config file not found: {SAMPLE_CONFIG_PATH}")
+    with open(SAMPLE_CONFIG_PATH) as f:
         return json.load(f)
 
 
@@ -178,7 +179,7 @@ def _load_sample_data(sample_dir: Path):
     angle_range = float(angles_increasing[-1] - angles_increasing[0])
     z_range = float(z_corrected[-1] - z_corrected[0])
     pitch = z_range * (2 * np.pi) / angle_range if angle_range != 0 else 0.0
-    print(f"[INFO] Computed pitch: {pitch:.2f} mm")
+    print(f"[INFO] Computed average pitch: {pitch:.2f} mm")
 
     angle_partition = odl.nonuniform_partition(angles_increasing)
 
@@ -208,7 +209,7 @@ def _load_sample_data(sample_dir: Path):
         det_radius=metadata["DET_RADIUS"],
         det_curvature_radius=(metadata["DET_CURVATURE_RADIUS"], None),
         pitch=0, # type: ignore The argument is a float, the function annotation is wrong.
-        axis=[0, 0, 1],
+        axis=metadata["ROTATION_AXIS"],
         src_shift_func=shift_func,     # could be set to a function of angle if needed
         det_shift_func=shift_func,
         translation=[0, 0, 0],
@@ -338,28 +339,33 @@ async def log_to_access_time(request: Request, call_next):
 @app.on_event("startup")
 def startup():
     """Load config + default sample, then write output/full_geometry.json and cache trajectory."""
-    global config, sample_name
+    global sample_config, sample_name
 
     start = time.time()
-    config = _load_config()
-    if not config.get("samples"):
-        raise RuntimeError("No samples listed in slicer_backend_config.json")
-    first = config["samples"][0]
+    sample_config = _load_sample_config()
+    if not sample_config.get("samples"):
+        raise RuntimeError("No samples listed in sample_config.json")
+    first = sample_config["samples"][0]
     sample_name = ""
     select_sample(SampleSelect(specie=first["specie"], tree_ID=int(first["tree_ID"]), disk_ID=int(first["disk_ID"])))
     end = time.time()
     print(f"[INFO] Startup took {end - start} seconds")
 
 #########################################################
-# get_backend_config (route)
-# Serve slicer_backend_config.json for legacy clients.
+# get_reconstruction_methods (route)
+# Serve reconstruction_config.json, a list of supported reconstruction methods and their parameters.
 #########################################################
-@app.api_route("/slicer_backend_config.json", methods=["GET", "HEAD"])
-def get_backend_config():
-    if CONFIG_PATH.exists():
-        return FileResponse(CONFIG_PATH, media_type="application/json", filename="slicer_backend_config.json")
-    return JSONResponse(status_code=404, content={"error": f"Missing config file at {str(CONFIG_PATH)}"})
+@app.get("/reconstruction_methods.json")
+def get_reconstruction_methods():
+    return FileResponse(RECONSTRUCTION_CONFIG_PATH, media_type="application/json", filename="reconstruction_methods.json")
 
+#########################################################
+# get_sample_config (route)
+# Serve sample_config.json, a list of samples.
+#########################################################
+@app.get("/sample_config.json")
+def get_sample_config():
+    return FileResponse(SAMPLE_CONFIG_PATH, media_type="application/json", filename="sample_config.json")
 
 #########################################################
 # serve_file (route)
@@ -425,10 +431,10 @@ class SampleSelect(BaseModel):
 @app.post("/select_sample")
 def select_sample(sel: SampleSelect):
     """Switch active sample, reload arrays, and regenerate outputs."""
-    global cached_geometry, sample_name, config, sinogram, sinogramMin, sinogramMax, metadata, sinogram
+    global cached_geometry, sample_name, sample_config, sinogram, sinogramMin, sinogramMax, metadata, sinogram
 
     try:
-        sample_dir = _resolve_sample_dir(config, sel.specie, sel.tree_ID, sel.disk_ID)
+        sample_dir = _resolve_sample_dir(sample_config, sel.specie, sel.tree_ID, sel.disk_ID)
         new_sample_name = f"{sel.specie}_{sel.tree_ID}_{sel.disk_ID}"
         if sample_name == None or sample_name != new_sample_name:
             sample_name = new_sample_name
@@ -708,7 +714,7 @@ def run_reconstruction(req: ReconRequest, request: Request):
         )
 
     # Validate sample exists (re-uses config + path helpers)
-    cfg = _load_config()
+    cfg = _load_sample_config()
     sample_dir = _resolve_sample_dir(cfg, req.specie, req.tree_ID, req.disk_ID)
     if not sample_dir.exists():
         return JSONResponse(status_code=400, content={"error": f"Sample not found: {sample_dir}"})

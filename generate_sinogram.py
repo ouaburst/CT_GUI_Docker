@@ -22,21 +22,21 @@ detector_partition = odl.uniform_partition([-np.pi/32, -20], [np.pi/32, 20], [51
 geometry = odl.applications.tomo.ConeBeamGeometry(
     angle_partition, detector_partition, src_radius=200,
     det_radius=200, det_curvature_radius=(400, None),
-    # FIXME: Generating with a different axis doesn't work...
-    axis=[0, 0, 1], pitch=20)
+    axis=[1, 0, 0], pitch=0)
 
 # Ray transform (= forward projection).
 ray_trafo = odl.applications.tomo.RayTransform(reco_space, geometry)
 
 # Create a discrete Shepp-Logan phantom (modified version)
 phantom = odl.core.phantom.shepp_logan(reco_space, True)
+phantom = odl.core.phantom.defrise(reco_space)
 
 # Create projection data by calling the ray transform on the phantom
 proj_data = ray_trafo(phantom)
 
 # Write out the npy files.
 DATA_FOLDER = Path("/test/data/real_datasets/ml_ready/")
-SAMPLE_NAME = "phantom_1_1" # FIXME: Match the sample index structure...
+SAMPLE_NAME = "phantom_1_1" # Match the sample index structure
 SAMPLE_FOLDER = DATA_FOLDER / SAMPLE_NAME
 
 metadata = {
@@ -52,20 +52,24 @@ metadata = {
     "SRC_RADIUS": geometry.src_radius,
     "DET_RADIUS": geometry.det_radius,
     "DET_CURVATURE_RADIUS": typing.cast(odl.applications.tomo.CylindricalDetector, geometry.detector).radius,
+    "ROTATION_AXIS": list(geometry.axis),
+    # FIXME: offset_along_axis, src_to_det_init, det_axes_init, translation
     "REC_PIC_SIZE": reco_space.cell_sides[0], # FIXME: Aniso-pixels?
     "REC_NPX_X": reco_space.shape[0],
     "REC_NPX_Y": reco_space.shape[1],
+    "REC_NPX_Z": reco_space.shape[2],
     "REC_MIN_X": reco_space.min_pt[0],
     "REC_MAX_X": reco_space.max_pt[0],
     "REC_MIN_Y": reco_space.min_pt[1],
     "REC_MAX_Y": reco_space.max_pt[1],
-    # FIXME: If the detector doesn't have a pitch the default ROI is completely off as we use that for the ROI Z extent.
+    "REC_MIN_Z": reco_space.min_pt[2],
+    "REC_MAX_Z": reco_space.max_pt[2],
 }
 
 import os
 import stat
 
-SAMPLE_FOLDER.mkdir(mode=0o777, parents=True)
+SAMPLE_FOLDER.mkdir(mode=0o777, parents=True, exist_ok = True)
 with open(SAMPLE_FOLDER / "metadata.json", "w") as f:
     json.dump(metadata, f, indent=2)
 os.chmod(SAMPLE_FOLDER / "metadata.json", stat.S_IWOTH | stat.S_IROTH | stat.S_IWGRP | stat.S_IRGRP | stat.S_IWUSR | stat.S_IRUSR)
@@ -73,13 +77,16 @@ print(metadata)
 
 np.save(SAMPLE_FOLDER / "sinogram.npy", proj_data.data, False)
 np.save(SAMPLE_FOLDER / "angles.npy", geometry.angles, False)
-# FIXME: Get the correct shape and values
-np.save(SAMPLE_FOLDER / "axial_positions.npy", geometry.src_position(geometry.angles)[:, 2])
+distance_along_axis = np.dot(geometry.src_position(geometry.angles), geometry.axis)
+#print(distance_along_axis)
+np.save(SAMPLE_FOLDER / "axial_positions.npy", distance_along_axis)
 np.save(SAMPLE_FOLDER / "shifts", np.zeros((geometry.angles.shape[0], 3)))
 
-# FIXME: Describe the samples in a separate file from the reconstruction methods...
-server_config = {
+sample_config = {
+    # The path to the folders for the individual samples.
+    "volume_name": "/media/Store-SSD",
     "samples": [ { "specie": "phantom", "tree_ID": 1, "disk_ID": 1  } ]
 }
-
-print(json.dumps(server_config))
+print(json.dumps(sample_config))
+with open("sample_config.json", "w") as f:
+    json.dump(sample_config, f)

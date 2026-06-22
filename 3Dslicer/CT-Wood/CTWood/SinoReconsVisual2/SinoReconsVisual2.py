@@ -227,8 +227,10 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
     sceneObjects: Vtk3DSceneObjects
     sampleData: SampleData
     reconstructionSettingsWidgets: dict[str, qt.QWidget] = {}
-    # Server configuration json, see slicer_backend_config.json
-    config: dict
+    # Server sample configuration json, see sample_config.json
+    sample_config: dict
+    # Server reconstruction methods configuration json, see reconstruction_methods.json
+    reconstruction_methods: dict
 
     def __init__(self, parent=None):
         ScriptedLoadableModuleWidget.__init__(self, parent)
@@ -553,7 +555,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         params = {}
         methodName = (self.ui.reconstructionMethodComboBox.currentText or "").lower()
         method: dict|None = None
-        for m in self.config['reconstruction_methods']:
+        for m in self.reconstruction_methods['reconstruction_methods']:
             if m['name'] == methodName:
                 method = m
         if method == None:
@@ -649,10 +651,10 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             trajectory = self.sampleData.geometry.get("full_trajectory", np.empty(0))
             params["REC_MIN_X"] = metadata['REC_MIN_X']
             params["REC_MIN_Y"] = metadata["REC_MIN_Y"]
-            params["REC_MIN_Z"] = trajectory[0][2]
+            params["REC_MIN_Z"] = metadata["REC_MIN_Z"]
             params["REC_MAX_X"] = metadata["REC_MAX_X"]
             params["REC_MAX_Y"] = metadata["REC_MAX_Y"]
-            params["REC_MAX_Z"] = trajectory[-1][2]
+            params["REC_MAX_Z"] = metadata["REC_MAX_Z"]
             params['SINOGRAM_MIN'] = 0
             params['SINOGRAM_MAX'] = self.sampleData.totalSamples
             params["REC_NPX_X"] = metadata['REC_NPX_X']
@@ -851,15 +853,18 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
     def onConnectToServerClicked(self):
         # Persist (and normalize) what the user entered before we request
         base = self._currentBaseUrl()
-        config_url = f"{base}/slicer_backend_config.json"
 
         try:
-            response = self.session.get(config_url, timeout=5)
+            response = self.session.get(f"{base}/sample_config.json", timeout=5)
             response.raise_for_status()
-            self.config = response.json()
+            self.sample_config = response.json()
+
+            response = self.session.get(f"{base}/reconstruction_methods.json", timeout=5)
+            response.raise_for_status()
+            self.reconstruction_methods = response.json()
 
             # Populate sample combo box
-            samples = self.config.get("samples", [])
+            samples = self.sample_config.get("samples", [])
             self.ui.sampleSelectorComboBox.clear()
             for sample in samples:
                 # expect keys: specie, tree_ID, disk_ID
@@ -870,7 +875,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.ui.loadSampleButton.setEnabled(True)
 
             # Use the config to populate the reconstruction parameter widgets
-            self.populateReconstructionMethods(self.config)
+            self.populateReconstructionMethods(self.reconstruction_methods)
 
             # Initial visibility for parameter groups
             selected_method = self.ui.reconstructionMethodComboBox.currentText
@@ -880,7 +885,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
         except requests.exceptions.RequestException as e:
             self.ui.statusLabel.setText('Status: <font color="red">Failed to connect</font>')
-            slicer.util.errorDisplay(f"Could not fetch config from:\n{config_url}\n\n{e}", windowTitle="Connection Error")
+            slicer.util.errorDisplay(f"Could not fetch config from:\n{e.request.url}\n\n{e}", windowTitle="Connection Error")
 
     def loadSelectedSample(self):
         try:
@@ -938,8 +943,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
             self.sampleData.metadata = response_json["metadata"]
 
-            self.sampleData.rec_bounds_min = np.array([self.sampleData.metadata["REC_MIN_X"], self.sampleData.metadata["REC_MIN_Y"], self.sampleData.bounds_min[2]])
-            self.sampleData.rec_bounds_max = np.array([self.sampleData.metadata["REC_MAX_X"], self.sampleData.metadata["REC_MAX_Y"], self.sampleData.bounds_max[2]])
+            self.sampleData.rec_bounds_min = np.array([self.sampleData.metadata["REC_MIN_X"], self.sampleData.metadata["REC_MIN_Y"], self.sampleData.metadata["REC_MIN_Z"]])
+            self.sampleData.rec_bounds_max = np.array([self.sampleData.metadata["REC_MAX_X"], self.sampleData.metadata["REC_MAX_Y"], self.sampleData.metadata["REC_MAX_Z"]])
 
             # FIXME: There is something weird going on when setting the scene of the range widget.
             # It seems I'm not able to set the scene? Which then causes the widget to be disabled...??
@@ -1993,11 +1998,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
     def updateReconstructionBounds(self):
         metadata = self.sampleData.metadata
 
-        trajectory = self.sampleData.geometry.get("full_trajectory", np.empty(0))
-
-        REC_MIN_X, REC_MIN_Y, REC_MIN_Z = metadata['REC_MIN_X'], metadata['REC_MIN_Y'], trajectory[0][2]
-        REC_MAX_X, REC_MAX_Y, REC_MAX_Z = metadata['REC_MAX_X'], metadata['REC_MAX_Y'], trajectory[-1][2]
-        #REC_NPX_X, REC_NPX_Y, REC_NPX_Z = metadata['REC_NPX_X'], metadata['REC_NPX_Y'], int((REC_MAX_Z - REC_MIN_Z) // metadata['REC_PIC_SIZE'])
+        REC_MIN_X, REC_MIN_Y, REC_MIN_Z = metadata['REC_MIN_X'], metadata['REC_MIN_Y'], metadata['REC_MIN_Z']
+        REC_MAX_X, REC_MAX_Y, REC_MAX_Z = metadata['REC_MAX_X'], metadata['REC_MAX_Y'], metadata['REC_MAX_Z']
 
         self.sceneObjects.reconOutline.SetBounds(REC_MIN_X, REC_MAX_X, REC_MIN_Y, REC_MAX_Y, REC_MIN_Z, REC_MAX_Z)
         self.sceneObjects.reconCubeModelDisplay.SetVisibility(1)
@@ -2197,6 +2199,10 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         vtk_array = numpy_to_vtk(tex_data.reshape(tex_data.shape[0] * tex_data.shape[1], 1), 1, vtk.VTK_UNSIGNED_CHAR)
         #print(vtk_array)
         sourceDetector.sensorModelImage.GetPointData().SetScalars(vtk_array)
+        # FIXME: We need to manually update the 3D view for this to be in sync at all times...
+        # This suggests that modified events raised by changing the data doesn't reach the
+        # relevant mrml nodes.
+        slicer.app.layoutManager().threeDWidget(0).mrmlViewNode().Modified()
 
     # -----------------------------
     # Slider / sinogram fetch

@@ -1,0 +1,26 @@
+{
+    "reconstruction_methods": [
+        {
+            "name": "adjoint",
+            "parameters": {}
+        },
+        {
+            "name": "fbp",
+            "parameters": {
+                "filter_type":       { "type": "QComboBox",      "values": ["Ram-Lak", "Shepp-Logan", "Cosine", "Hamming", "Hann"] },
+                "frequency_scaling": { "type": "QDoubleSpinBox", "value": { "min": 0.0, "max": 1.0, "default": 1.0, "step": 0.05 } },
+                "padding":           { "type": "QCheckBox",      "value": true }
+            }
+        },
+        {
+            "name": "landweber",
+            "parameters": {
+                "iterations": { "type": "QSpinBox",       "value": { "min": 1,     "max": 500, "default": 100, "step": 10 } },
+                "relaxation": { "type": "QDoubleSpinBox", "value": { "min": 0.001, "max": 1.0, "default": 0.2, "step": 0.01 } }
+            },
+            "json_parameters": {
+                "progress_every": 5
+            }
+        }
+    ]
+}

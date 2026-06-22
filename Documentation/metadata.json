@@ -11,6 +11,7 @@
     "SRC_RADIUS": 503.0,
     "DET_RADIUS": 0.0,
     "DET_CURVATURE_RADIUS": 503.0,
+    "ROTATION_AXIS": [0, 0, 1],
     "REC_PIC_SIZE": 0.5,
     "REC_NPX_X": 512,
     "REC_NPX_Y": 512,

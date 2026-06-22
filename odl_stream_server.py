@@ -155,10 +155,15 @@ def _load_sample_data(sample_dir: Path):
     shifts_raw = np.load(sample_dir / "shifts.npy")
     with open(sample_dir / "metadata.json") as f:
         metadata = json.load(f)
-    # FIXME: This takes a long time, if we had these precomputed switching samples would be pretty fast.
-    # - Julius Häger 2026-03-31
-    sinogramMin = np.min(sinogram)
-    sinogramMax = np.max(sinogram)
+    if "SINOGRAM_MIN" in metadata and "SINOGRAM_MAX" in metadata:
+        sinogramMin = np.float32(metadata["SINOGRAM_MIN"])
+        sinogramMax = np.float32(metadata["SINOGRAM_MAX"])
+    else:
+        # This takes a long time, use precomputed metadata values if available.
+        # - Julius Häger 2026-06-22
+        print(f"[INFO] Metadata didn't contain SINOGRAM_MIN & SINOGRAM_MAX. Computing min/max from sinogram data.")
+        sinogramMin = np.min(sinogram)
+        sinogramMax = np.max(sinogram)
     end = time.time()
     print(f"[INFO] Sinogram min {sinogramMin} max {sinogramMax}")
     print(f"[INFO] Sinogram loaded with shape {sinogram.shape} and dtype {sinogram.dtype} in {end-start:.3} s")

@@ -24,6 +24,9 @@ import numpy as np
 from pathlib import Path
 from scipy.interpolate import interp1d
 
+BASE_DIR = Path(__file__).resolve().parent
+SAMPLE_CONFIG_PATH = BASE_DIR / "sample_config.json"
+
 #########################################################
 # main
 # Parse CLI args, locate the requested sample in the MITO
@@ -173,9 +176,15 @@ def main():
     nrrd.write(output_path, reconstruction_np, header)
     _progress(f"Saved NRRD volume to {output_path}.")
 
+def load_sample_config() -> dict:
+    if not SAMPLE_CONFIG_PATH.exists():
+        raise FileNotFoundError(f"Config file not found: {SAMPLE_CONFIG_PATH}")
+    with open(SAMPLE_CONFIG_PATH) as f:
+        return json.load(f)
+
 def load_sample(specie: str, tree_ID: int, disk_ID: int, params: dict) -> dict:
-    # Construct sample path
-    data_folder_path = Path('/media/Store-SSD/real_datasets/ml_ready')
+    config = load_sample_config()
+    data_folder_path = Path(config['samples_directory'])
     sample_path = data_folder_path.joinpath(f'{specie}_{tree_ID}_{disk_ID}')
 
     sinogram_min = params["SINOGRAM_MIN"]

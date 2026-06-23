@@ -88,15 +88,14 @@ def _load_sample_config() -> dict:
 def _resolve_sample_dir(cfg: dict, specie: str, tree_ID: int, disk_ID: int) -> Path:
     """
     Expected layout on host (bind-mount into the container at the SAME path):
-      <volume_name>/real_datasets/ml_ready/<specie>_<tree_ID>_<disk_ID>/
+      <samples_directory>/<specie>_<tree_ID>_<disk_ID>/
         ├─ sinogram.npy
         ├─ angles.npy
         ├─ axial_positions.npy
         ├─ shifts.npy
         └─ metadata.json
     """
-    # FIXME: real_datasets/ml_ready should be part of the config...
-    vol_root = Path(cfg["volume_name"]) / "real_datasets" / "ml_ready"
+    vol_root = Path(cfg["samples_directory"])
     return vol_root / f"{specie}_{tree_ID}_{disk_ID}"
 
 
@@ -671,6 +670,7 @@ def get_supported_methods() -> list[str]:
     argparse 'choices=[...]' for --reconstruction_method. Falls back
     to a safe default if parsing fails.
     """
+    # FIXME: Use reconstruction_methods.json to populate this list?
     try:
         rp = BASE_DIR / "reconstruction.py"
         txt = rp.read_text(encoding="utf-8", errors="ignore")

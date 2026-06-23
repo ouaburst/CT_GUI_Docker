@@ -1,5 +1,5 @@
 {
-    "volume_name": "/media/Store-SSD",
+    "samples_directory": "/media/Store-SSD/real_datasets/ml_ready",
     "samples": [
         {
             "specie": "pine",

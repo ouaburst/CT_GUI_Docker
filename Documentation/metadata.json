@@ -1,8 +1,8 @@
 {
     "GEOMETRY_ENGINE": "ODL",
     "GEOMETRY_NAME": "ConeBeamGeometry",
-    "DET_NPX_Z": 512,
     "DET_NPX_X": 512,
+    "DET_NPX_Z": 512,
     "DET_PIX_SIZE": 0.078125,
     "DET_X_MIN": -0.098174770424681035,
     "DET_X_MAX": 0.098174770424681035,
@@ -21,5 +21,7 @@
     "REC_MIN_Y": -20.0,
     "REC_MAX_Y": 20.0,
     "REC_MIN_Z": -20.0,
-    "REC_MAX_Z": 20.0
+    "REC_MAX_Z": 20.0,
+    "SINOGRAM_MIN": 0.0,
+    "SINOGRAM_MAX": 10.0
 }

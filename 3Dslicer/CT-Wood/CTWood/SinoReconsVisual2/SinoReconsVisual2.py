@@ -543,14 +543,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         #self.ui.fbpParameterGroupBox.setVisible(method == "fbp")
         #self.ui.landweberParameterGroupBox.setVisible(method == "landweber")
 
-    def _parse_selected_sample(self):
-        """Return (tree_ID, disk_ID) from UI selection."""
-        sample_text = self.ui.sampleSelectorComboBox.currentText
-        parts = sample_text.replace("Tree", "").replace("Disk", "").split("-")
-        tree_ID = int(parts[0].strip())
-        disk_ID = int(parts[1].strip())
-        return tree_ID, disk_ID
-
     def getReconstructionMethodParameters(self) -> dict:
         params = {}
         methodName = (self.ui.reconstructionMethodComboBox.currentText or "").lower()
@@ -608,19 +600,15 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         """
         base = self._currentBaseUrl()
         run_url = f"{base}/run_reconstruction"
-
-        # specie is fixed for now; make it a UI control later if needed
-        specie = "pine"
-
-        # Parse sample selection: "Tree X - Disk Y"
-        try:
-            tree_ID, disk_ID = self._parse_selected_sample()
-        except Exception:
-            slicer.util.errorDisplay(
-                "Failed to parse selected sample (Tree/Disk).",
-                windowTitle="Parsing Error"
-            )
+        
+        sample = self.ui.sampleSelectorComboBox.currentData
+        if sample == None:
+            slicer.util.errorDisplay("No sample selected, cannot run reconstruction.")
             return
+        
+        specie = sample["specie"]
+        tree_ID = sample["tree_ID"]
+        disk_ID = sample["disk_ID"]
 
         # Method + parameters
         method = (self.ui.reconstructionMethodComboBox.currentText or "").lower()
@@ -648,7 +636,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         else:
             # Invalid entry or we've selected the "Whole" entry.
             metadata = self.sampleData.metadata
-            trajectory = self.sampleData.geometry.get("full_trajectory", np.empty(0))
             params["REC_MIN_X"] = metadata['REC_MIN_X']
             params["REC_MIN_Y"] = metadata["REC_MIN_Y"]
             params["REC_MIN_Z"] = metadata["REC_MIN_Z"]
@@ -659,7 +646,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             params['SINOGRAM_MAX'] = self.sampleData.totalSamples
             params["REC_NPX_X"] = metadata['REC_NPX_X']
             params["REC_NPX_Y"] = metadata['REC_NPX_Y']
-            params["REC_NPX_Z"] = int((params["REC_MAX_Z"] - params["REC_MIN_Z"]) // metadata['REC_PIC_SIZE'])
+            params["REC_NPX_Z"] = metadata['REC_NPX_Z']
 
         params["use_cache"] = self.ui.useCacheCheckbox.checkState() == qt.Qt.Checked
 

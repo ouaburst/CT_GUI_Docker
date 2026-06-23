@@ -1,5 +1,3 @@
-"""Example using the ray transform with circular cone beam geometry."""
-
 import numpy as np
 import odl
 import typing
@@ -14,11 +12,13 @@ reco_space = odl.uniform_discr(
     min_pt=[-20, -20, -20], max_pt=[20, 20, 20], shape=[300, 300, 300],
     dtype='float32')
 
-# Make a circular cone beam geometry with flat detector
+# Make a circular cone beam geometry with curved detector
 # Angles: uniformly spaced, n = 360, min = 0, max = 2 * pi
 angle_partition = odl.uniform_partition(0, 2 * np.pi, 360)
+
 # Detector: uniformly sampled, n = (512, 512), min = (-30, -30), max = (30, 30)
 detector_partition = odl.uniform_partition([-np.pi/32, -20], [np.pi/32, 20], [512, 512])
+
 geometry = odl.applications.tomo.ConeBeamGeometry(
     angle_partition, detector_partition, src_radius=200,
     det_radius=200, det_curvature_radius=(400, None),
@@ -84,7 +84,7 @@ np.save(SAMPLE_FOLDER / "shifts", np.zeros((geometry.angles.shape[0], 3)))
 
 sample_config = {
     # The path to the folders for the individual samples.
-    "volume_name": "/media/Store-SSD",
+    "samples_directory": str(DATA_FOLDER),
     "samples": [ { "specie": "phantom", "tree_ID": 1, "disk_ID": 1  } ]
 }
 print(json.dumps(sample_config))

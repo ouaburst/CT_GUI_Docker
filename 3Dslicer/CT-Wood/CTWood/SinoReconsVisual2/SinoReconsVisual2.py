@@ -1174,6 +1174,13 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         # slicer.app.layoutManager().threeDWidget(0).threeDView().interactor() gives us these events but it's unclear
         # how to detect what object was clicked...
         # - Julius Häger 2026-05-06
+
+        # Disable middle-click moving this ROI
+        threeDView = slicer.app.layoutManager().threeDWidget(0).threeDView()
+        viewNode = threeDView.mrmlViewNode()
+        markupsDM = slicer.app.applicationLogic().GetViewDisplayableManagerByClassName(viewNode, "vtkMRMLMarkupsDisplayableManager")
+        roiWidget = markupsDM.GetHelper().GetWidget(roi_data.roi_node)
+        roiWidget.SetEventTranslationClickAndDrag(slicer.vtkMRMLAbstractWidget.WidgetStateOnWidget, vtk.vtkCommand.MiddleButtonPressEvent, vtk.vtkEvent.NoModifier, slicer.vtkMRMLAbstractWidget.WidgetStateTranslate, vtk.vtkWidgetEvent.NoEvent, vtk.vtkWidgetEvent.NoEvent)
     
         roi_data.sinogram_start_index = 0 if sinogram_start is None else sinogram_start
         roi_data.sinogram_end_index = self.sampleData.totalSamples - 1 if sinogram_end is None else sinogram_end

@@ -6,7 +6,7 @@ project(CTWood)
 # Extension meta-information
 set(EXTENSION_HOMEPAGE "https://www.slicer.org/wiki/Documentation/Nightly/Extensions/CTWood")
 set(EXTENSION_CATEGORY "Examples")
-set(EXTENSION_CONTRIBUTORS "Oualid B (LTU)")
+set(EXTENSION_CONTRIBUTORS "Oualid B (LTU)" "Julius Häger (KTH)")
 set(EXTENSION_DESCRIPTION "This is an example of a simple extension")
 set(EXTENSION_ICONURL "https://www.example.com/Slicer/Extensions/CTWood.png")
 set(EXTENSION_SCREENSHOTURLS "https://www.example.com/Slicer/Extensions/CTWood/Screenshots/1.png")

@@ -18,12 +18,13 @@ This repository is under active development — features, modules, and interface
 ## Repository Structure
 
     .
-    ├── dataset.py               # MITO dataset loader (PyTorch Dataset with ODL operators)
-    ├── reconstruction.py        # Standalone script to run reconstruction (adjoint, fbp, landweber)
-    ├── odl_stream_server.py     # FastAPI server for streaming geometry/sinogram slices and running reconstructions
-    ├── slicer_backend_config.json # Configuration file used to populate the menu in 3D Slicer
-    ├── Dockerfile               # The dockerfile
-    └── README.md
+    ├── README.md                   # This file
+    ├── Dockerfile                  # The dockerfile
+    ├── odl_stream_server.py        # FastAPI server for streaming geometry/sinogram slices and running reconstructions
+    ├── reconstruction.py           # Standalone script to run reconstruction (adjoint, fbp, landweber)
+    ├── reconstruction_methods.json # Defines a list of supported reconstruction methods. See [RECONSTRUCTION_GUIDE.md](./Documentation/RECONSTRUCTION_GUIDE.md) for a guide on how to add new reconstruction methods.
+    ├── sample_config.json          # Sample list configuration.
+    └── 3Dslicer/CT-Wood/CT-Wood/SinoReconsVisual2 # Slicer plugin
 
 ## Functionality Summary — odl_stream_server.py
 
@@ -44,7 +45,7 @@ This repository is under active development — features, modules, and interface
 
 -   Reconstructs a **3D CT volume** from the **MITO dataset** for a specified tree and disk.
 
--   Supports **three reconstruction methods**:
+-   Currently supports **three reconstruction methods**, see [RECONSTRUCTION_GUIDE.md](./Documentation/RECONSTRUCTION_GUIDE.md):
 
     -   adjoint → simple backprojection (Aᵗb)
 
@@ -94,17 +95,16 @@ This repo includes a Dockerfile that installs:
 
 ## Build
 
-
 Inside the directory `CT_GUI_Docker/` type:
 
-    docker build -t woodscan:cuda113 .
+    docker build -t woodscan:cuda121 .
 
  ## Run the API server (GPU)   
 
     docker run --rm -it -p 8000:8000 \
      --gpus all \
      -v /media/Store-SSD:/media/Store-SSD:ro \
-     woodscan:cuda113 \
+     woodscan:cuda121 \
      python -m uvicorn odl_stream_server:app --host 0.0.0.0 --port 8000
 
 Notes:
@@ -121,7 +121,7 @@ Notes:
 
 -   **-v /media/Store-SSD:/media/Store-SSD:ro**: Mount dataset (read-only).
 
--   **woodscan:cuda113**: Docker image (built with CUDA 11.3, ODL, ASTRA, FastAPI).
+-   **woodscan:cuda113**: Docker image (built with CUDA 12.1, ODL, ASTRA, FastAPI).
 
 -   **python -m uvicorn odl_stream_server:app**: Runs the FastAPI server inside the container.
 
@@ -133,13 +133,19 @@ Root:
 
 Geometry / Sinogram:
 
--   **GET /stream_window?i=100&n=10** --- sources, detector panels, FOV rays, Bézier surfaces
+-   **GET /reconstruction_methods.json** --- a list of reconstruction methods the server supports
 
--   **GET /full_geometry** --- compact precomputed geometry JSON
+-   **GET /sample_conifg.json** --- a list of samples that can be used in POST /select_sample
 
--   **GET /full_trajectory.json** --- source positions for all views
+-   **POST /select_sample** --- select a sample that other requests will query, must be an entry from GET /sample_config.json
+
+-   **GET /full_geometry_npz** --- compact precomputed geometry numpy .npz file
 
 -   **GET /get_sinogram_slice/{index}** --- one projection as .nrrd
+
+-   **GET /get_sinogram_slice_fast/{index}** --- one projection as .jp2 (JPEG2000)
+
+-   **POST /run_reconstruction** --- Run reconstruction
 
 ## License ##
 
@@ -150,5 +156,3 @@ MIT --- see \<LICENSE>.
 -   **ODL** team for operator framework
 
 -   **ASTRA Toolbox** developers for GPU projectors
-
--   **PyVista** team for VTK-based visualization tools

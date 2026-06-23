@@ -914,7 +914,6 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             end = time.time()
             print(f"[INFO] Loaded full geometry: "
                   f"{len(self.sampleData.geometry.get("sources", []))} sources, "
-                  f"{len(self.sampleData.geometry.get('detector_panels', []))} panels "
                   f"in {end - start} seconds {len(response.content)} bytes")
 
             # Configure slider
@@ -1973,7 +1972,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.updateSourceDetector(self.sceneObjects.sourceDetectorObjects, index)
 
     def updateTrajectory(self):
-        trajectory = self.sampleData.geometry.get("full_trajectory", np.empty(0))
+        trajectory = self.sampleData.geometry.get("sources", np.empty(0))
         #print(f"trajectory {trajectory.shape} {trajectory.dtype} {len(trajectory)}")
         
         polyData : vtk.vtkPolyData = typing.cast(vtk.vtkPolyData, self.sceneObjects.trajectoryModel.GetPolyData())
@@ -2119,7 +2118,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             cells.Modified()
             polyData.Modified()
 
-            trajectory = self.sampleData.geometry.get("full_trajectory", np.empty(0))
+            trajectory = self.sampleData.geometry.get("sources", np.empty(0))
             trajectory_range = trajectory[start_index:end_index]
 
             polyData : vtk.vtkPolyData = typing.cast(vtk.vtkPolyData, self.sceneObjects.roiSinogramTrajectoryModel.GetPolyData())

@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Query, Request, BackgroundTasks
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse
+from fastapi.exceptions import HTTPException
 from fastapi.staticfiles import StaticFiles
 import logging
 from pydantic import BaseModel
@@ -66,7 +67,6 @@ SAMPLE_CONFIG_PATH = BASE_DIR / "sample_config.json"
 FULL_GEOM_NPZ = OUTPUT_DIR / "full_geometry.npz"
 
 SINOGRAM_CACHE_DIR = OUTPUT_DIR / "sinogram_cache"
-
 
 #########################################################
 # _load_sample_config
@@ -360,7 +360,7 @@ def startup():
 # Serve reconstruction_config.json, a list of supported reconstruction methods and their parameters.
 #########################################################
 @app.get("/reconstruction_methods.json")
-def get_reconstruction_methods():
+def get_reconstruction_methods() -> FileResponse:
     return FileResponse(RECONSTRUCTION_CONFIG_PATH, media_type="application/json", filename="reconstruction_methods.json")
 
 #########################################################
@@ -368,7 +368,7 @@ def get_reconstruction_methods():
 # Serve sample_config.json, a list of samples.
 #########################################################
 @app.get("/sample_config.json")
-def get_sample_config():
+def get_sample_config() -> FileResponse:
     return FileResponse(SAMPLE_CONFIG_PATH, media_type="application/json", filename="sample_config.json")
 
 #########################################################
@@ -376,11 +376,10 @@ def get_sample_config():
 # Small file server for anything under ./output (e.g., VTP/JSON).
 #########################################################
 @app.get("/files/{filename}")
-def serve_file(filename: str):
+def serve_file(filename: str) -> FileResponse:
     path = OUTPUT_DIR / filename
     if not path.exists():
-        return JSONResponse(status_code=404, content={"error": "File not found"})
-    # naive media type; override per your needs
+        raise HTTPException(404, "File not found")
     return FileResponse(path, media_type="application/octet-stream")
 
 #########################################################
@@ -394,30 +393,27 @@ def full_dataset():
     global cached_geometry
 
     print("[INFO] Dataset ready for transmission.")
-    return JSONResponse(content={
+    return {
         "total_angles": N,
         "sinogram": sinogram.tolist(),  # shape: (N, det_x, det_z)
         "geometry": cached_geometry,    # geometry data
-    })
+    }
 
 #########################################################
 # get_full_geometry_npz (route)
 # Serve the compact precomputed full geometry NPZ file.
+# The npz file will contain the following keys:
+# "sources": Source positions. Shape: (N, 3).
+# "bezier_curves": Detector  Shape: (N, Rows, Columns).
+# "bezier_curves_uvs": The UV coordinates for each point of the detector. The same for all detector positions. Shape: (Rows, Columns).
+# "fov_rays": Lines connecting the source position to the edge poistions of the detector geometry. Shape: (N, 4, 2, 3).
 #########################################################
 @app.get("/full_geometry_npz")
-def get_full_geometry_npz():
+def get_full_geometry_npz() -> FileResponse:
     if not FULL_GEOM_NPZ.exists():
-        return JSONResponse(status_code=404, content={"error": "File not found"})
+        # FIXME: This means that we've not selected or finished switching samples yet, maybe we should have a better error description?
+        raise HTTPException(404, "File not found")
     return FileResponse(FULL_GEOM_NPZ, media_type="application/x-npz")
-
-#########################################################
-# serve_full_trajectory (route)
-# Serve only the full source trajectory JSON.
-#########################################################
-@app.get("/full_trajectory.json")
-def serve_full_trajectory():
-    global cached_geometry
-    return JSONResponse(content=cached_geometry["full_trajectory"])
 
 # ----- Switch sample at runtime (optional)
 class SampleSelect(BaseModel):
@@ -437,6 +433,9 @@ def select_sample(sel: SampleSelect):
     """Switch active sample, reload arrays, and regenerate outputs."""
     global cached_geometry, sample_name, sample_config, sinogram, sinogramMin, sinogramMax, metadata, sinogram
 
+    # FIXME: Check that the requested sample is actually part of sample_config.json
+    # if the folder exists but there is no sample_config.json entry for it we shouldn't load it.
+
     try:
         sample_dir = _resolve_sample_dir(sample_config, sel.specie, sel.tree_ID, sel.disk_ID)
         new_sample_name = f"{sel.specie}_{sel.tree_ID}_{sel.disk_ID}"
@@ -450,9 +449,7 @@ def select_sample(sel: SampleSelect):
             # Rebuild the compact JSON & trajectory
             cached_geometry = {
                 "sources": [],
-                "detector_panels": [],
                 "fov_rays": [],
-                "full_trajectory": [],
                 "bezier_curves": [],
                 "bezier_curves_uvs": []
             }
@@ -463,7 +460,6 @@ def select_sample(sel: SampleSelect):
             cached_geometry["bezier_curves"] = surface.tolist()
             cached_geometry["bezier_curves_uvs"] = surface_uv.tolist()
             cached_geometry["fov_rays"] = rays.tolist()
-            cached_geometry["full_trajectory"] = src.tolist()
             end = time.time()
             print(f"[DEBUG] Generating sensor geometry took {end - start} seconds")
 
@@ -476,8 +472,7 @@ def select_sample(sel: SampleSelect):
                                 sources=src.astype(np.float32),
                                 bezier_curves=surface.astype(np.float32),
                                 bezier_curves_uvs=surface_uv.astype(np.float32),
-                                fov_rays=rays.astype(np.float32),
-                                full_trajectory=src.astype(np.float32))
+                                fov_rays=rays.astype(np.float32))
 
             #with gzip.open(FULL_GEOM_JSON_GZIP, "wt", encoding="utf-8") as f:
             #    json.dump(cached_geometry, f)
@@ -515,7 +510,7 @@ def select_sample(sel: SampleSelect):
     except Exception as e:
         import traceback
         print(f"[ERROR] {traceback.format_exc()}")
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        raise HTTPException(500, str(e))
 
 def compress_sinogram_slice_jp2(i):
     global sample_name, sinogram, sinogramMin, sinogramMax
@@ -536,8 +531,6 @@ def compress_sinogram_slice_jp2(i):
             # Save the dynamic range of the jp2 file so we can recover the correct values in the client
             with open(json_file_path, 'w') as f:
                 json.dump({ "slice_min": repr(float(slice_min)), "slice_max": repr(float(slice_max)) }, f)
-
-
 
 def compress_sinogram_slice_avif(i):
     global sample_name, sinogram, sinogramMin, sinogramMax
@@ -567,22 +560,16 @@ def compress_sinogram_slice_avif(i):
 # - Writes a temporary .nrrd and serves it
 #########################################################
 @app.get("/get_sinogram_slice/{index}")
-def get_sinogram_slice(index: int):
+def get_sinogram_slice(index: int) -> FileResponse:
     print(f"[DEBUG] Requested index: {index}")
     print(f"[DEBUG] sinogram shape: {sinogram.shape}")
 
     if sinogram.ndim != 3:
-        return JSONResponse(
-            status_code=500,
-            content={"error": f"Expected 3D sinogram, got shape: {sinogram.shape}"}
-        )
+        raise HTTPException(500, "Expected 3D sinogram, got shape: {sinogram.shape}")
 
     max_index = sinogram.shape[0]
     if index < 0 or index >= max_index:
-        return JSONResponse(
-            status_code=400,
-            content={"error": f"Index {index} out of bounds. Valid range: 0..{max_index - 1}"}
-        )
+        raise HTTPException(400, f"Index {index} out of bounds. Valid range: 0..{max_index - 1}")
 
     # Extract [det_x, det_z] then transpose to [det_z, det_x] for conventional display
     slice_2d = sinogram[index, :, :].T
@@ -620,11 +607,14 @@ def get_sinogram_slice(index: int):
 # Export a single projection as a JPEG 2000 image
 #########################################################
 @app.get("/get_sinogram_slice_fast/{index}")
-def get_sinogram_slice_fast(index: int):
-    global sample_name
+def get_sinogram_slice_fast(index: int) -> FileResponse:
+    global sample_name, N
     print(f"[DEBUG] Requested index: {index}")
     sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
     print(f"[DEBUG] Cache dir: {sample_sinogram_cache_dir}")
+
+    if index < 0 or index >= N:
+        raise HTTPException(400, f"Index {index} is out of bounds. Valid range: 0..{N-1}")
 
     file = f"{index}.jp2"
     file_path = sample_sinogram_cache_dir / file
@@ -637,7 +627,7 @@ def get_sinogram_slice_fast(index: int):
         try:
             compress_sinogram_slice_jp2(index)
         except Timeout as e:
-            return Response(headers={'reason': 'timeout', 'message': f'Timeout while waiting for lock file \'{e.lock_file}\' for a long time. Stale lock or sinogram slice compression taking a long time?'}, status_code=500)
+            raise HTTPException(500, f'Timeout while waiting for lock file \'{e.lock_file}\' for a long time. Stale lock or sinogram slice compression taking a long time?')
     
     with open(meta_path) as f:
         headers = json.load(f)
@@ -710,19 +700,13 @@ def run_reconstruction(req: ReconRequest, request: Request):
     print(f"[INFO] Got reconstruction request: {req}")
 
     if method not in supported_methods:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": f"Unsupported method '{req.method}'.",
-                "allowed": supported_methods
-            }
-        )
+        raise HTTPException(400, f"Unsupported method '{req.method}'. Allowed methods are: {supported_methods}")
 
     # Validate sample exists (re-uses config + path helpers)
     cfg = _load_sample_config()
     sample_dir = _resolve_sample_dir(cfg, req.specie, req.tree_ID, req.disk_ID)
     if not sample_dir.exists():
-        return JSONResponse(status_code=400, content={"error": f"Sample not found: {sample_dir}"})
+        raise HTTPException(400, f"Sample not found: {sample_dir}")
 
     # Ensure output dir
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
@@ -754,34 +738,20 @@ def run_reconstruction(req: ReconRequest, request: Request):
 
     if proc.returncode != 0:
         print(f"[ERROR] Reconstruction: {proc.stderr}")
-        # bubble up some context to the client
-        return JSONResponse(
-            status_code=500,
-            content={
-                "error": "Reconstruction failed",
-                "stderr": proc.stderr[-2000:],
-                "stdout": proc.stdout[-2000:]
-            }
-        )
+        raise HTTPException(500, { "message": "Reconstruction failed", "stderr": proc.stderr[-2000:], "stdout": proc.stdout[-2000:] })
 
     if not out_path.exists():
         print(f"[ERROR] Expected output not found: {out_path}")
-        return JSONResponse(
-            status_code=500,
-            content={"error": f"Expected output not found: {out_path}"}
-        )
+        raise HTTPException(500, f"Expected output not found: {out_path}")
 
     # Minimal JSON with path to the produced image under /images
-    return JSONResponse(
-        content=json.loads(json.dumps({
-            "status": "ok",
-            "method": method,
-            "allowed_methods": supported_methods,
-            "filename": out_name,
-            "url": f"/images/{out_name}",
-            # "stdout": proc.stdout[-2000:],  # tail for quick inspection (opt-in)
-        }, indent=2))
-    )
+    return {
+        "status": "ok",
+        "method": method,
+        "allowed_methods": supported_methods,
+        "filename": out_name,
+        "url": f"/images/{out_name}"
+    }
 
 
 #########################################################

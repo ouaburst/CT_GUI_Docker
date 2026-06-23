@@ -149,9 +149,9 @@ def _load_sample_data(sample_dir: Path):
     start = time.time()
     #sinogram = np.load(sample_dir / "sinogram.npy") # expected (N, det_x, det_z)
     sinogram = np.load(sample_dir / "sinogram.npy", mmap_mode="r") # expected (N, det_x, det_z)
-    angles_raw = np.load(sample_dir / "angles.npy")
-    z_raw = np.load(sample_dir / "axial_positions.npy")
-    shifts_raw = np.load(sample_dir / "shifts.npy")
+    angles_raw = np.load(sample_dir / "angles.npy", mmap_mode="r")
+    z_raw = np.load(sample_dir / "axial_positions.npy", mmap_mode="r")
+    shifts_raw = np.load(sample_dir / "shifts.npy", mmap_mode="r")
     with open(sample_dir / "metadata.json") as f:
         metadata = json.load(f)
     if "SINOGRAM_MIN" in metadata and "SINOGRAM_MAX" in metadata:

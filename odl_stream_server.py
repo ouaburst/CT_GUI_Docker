@@ -45,7 +45,6 @@ shifts = None            # per-projection shifts (x,y,z)
 metadata: dict           # dict with geometry + reconstruction grid settings
 geometry: ConeBeamGeometry # ODL ConeBeamGeometry constructed from dataset
 N = 0                    # number of projections
-pix_size_det = 0.0       # detector pixel size (mm)
 cached_geometry: dict   # the geometry data
 sample_name: str
 
@@ -137,7 +136,7 @@ def _validate_reconstruction_geometry(md: dict):
 # - Stores into module-level globals
 #########################################################
 def _load_sample_data(sample_dir: Path):
-    global sinogram, sinogramMin, sinogramMax, angles, z_positions, shifts, metadata, geometry, N, pix_size_det
+    global sinogram, sinogramMin, sinogramMax, angles, z_positions, shifts, metadata, geometry, N
 
     print(f"[INFO] Loading data from: {sample_dir}")
     req = ["sinogram.npy", "angles.npy", "axial_positions.npy", "shifts.npy", "metadata.json"]
@@ -171,9 +170,8 @@ def _load_sample_data(sample_dir: Path):
     # Apply z correction (accounting for any per-view shift in z)
     z_corrected = z_raw + shifts_raw[:, 2]
 
-    # Cache counts and detector pixel size
+    # Cache projection count
     N = len(angles_raw)
-    pix_size_det = float(metadata["DET_PIX_SIZE"])
 
     # The angles are all mod 2PI so we need to undo this operation
     # - Julius Häger 2026-03-26
@@ -233,83 +231,42 @@ def _load_sample_data(sample_dir: Path):
 # 4 FOV rays and the source position for a given index i.
 #########################################################
 def generate_sensor_geometry(geometry: ConeBeamGeometry, num_u=8, num_v=4):
+    global metadata
+
     angles = geometry.angles
     src_positions = geometry.src_position(angles)
-    det_refpoints = geometry.det_refpoint(angles)
-    det_axes = geometry.det_axes(angles)
 
-    du = det_axes[:, 0, :]
-    dv = det_axes[:, 1, :]
-
-    #print(f"src_positions = {src_positions.shape}")
-    #print(f"det_refpoints = {det_refpoints.shape}")
-    #print(f"det_axes = {det_axes.shape}")
-    #print(f"du = {du.shape}")
-    #print(f"dv = {dv.shape}")
-
-    # Determine tangential curvature range from pixel count and pixel size
     R_curv = float(metadata["DET_CURVATURE_RADIUS"])
     n_x = int(metadata["DET_NPX_X"])
-    arc_length = n_x * pix_size_det
-    theta_range = arc_length / R_curv
+    arc_length = n_x * float(metadata["DET_PIX_SIZE"])
+    expected_theta_range = arc_length / R_curv
 
-    # Use 3 control columns in theta (quadratic Bézier) and 3 rows in z
-    theta_vals = np.linspace(-theta_range / 2, theta_range / 2, 3)
-    z_vals = np.linspace(float(metadata["DET_Z_MIN"]), float(metadata["DET_Z_MAX"]), 3)
+    theta_range = geometry.detector.partition.max_pt[0] - geometry.detector.partition.min_pt[0]
+    if theta_range != expected_theta_range:
+        print(f"[WARNING] Theta range is not equal to the expected range. DET_PIX_SIZE is probably wrong. Actual: {theta_range}, Expected: {expected_theta_range}.")
 
-    # Outward normal approx from detector center to source
-    normals = src_positions - det_refpoints
-    normals = normals / np.linalg.norm(normals, axis=1).reshape(-1, 1)
+    surface_points = np.empty((len(angles), num_v, num_u, 3)) # (N, num_v, num_u, 3)
+    surface_uvs = np.empty((num_v, num_u, 2)) # (num_v, num_u, 2)
 
-    # Build 3×3 control grid in 3D
-    # FIXME: Change the order of dimensions in some way that makes sense...
-    control_points = np.empty((3, 3, len(angles), 3))
-    for iz, z in enumerate(z_vals):
-        for itheta, theta in enumerate(theta_vals):
-            # Arc along du + sagitta along normal + vertical offset along dv
-            control_points[iz, itheta] = det_refpoints + R_curv * np.sin(theta) * du + R_curv * (1 - np.cos(theta)) * normals + z * dv
-
-    #print(f"control_points: {control_points.shape}")
-
-    # Local helper: 1D quadratic Bézier interpolation for 3 control pts
-    def bezier_interp_1d(ctrl, t: float):
-        return (1 - t) ** 2 * ctrl[0] + 2 * (1 - t) * t * ctrl[1] + t ** 2 * ctrl[2]
-
-    # Sample u (tangential) and v (vertical)
-    u_vals = np.linspace(0, 1, num_u)
-    v_vals = np.linspace(0, 1, num_v)
-
-    v: np.float64
-    u: np.float64
-    surface_points = np.empty((num_v, num_u, len(angles), 3))
-    surface_uvs = np.empty((num_v, num_u, 2))
-    interm_rows = np.empty((3, len(angles), 3))
+    u_vals = np.linspace(geometry.detector.partition.min_pt[0], geometry.detector.partition.max_pt[0], num_u)
+    v_vals = np.linspace(geometry.detector.partition.min_pt[1], geometry.detector.partition.max_pt[1], num_v)
     for iv, v in enumerate(v_vals):
         for iu, u in enumerate(u_vals):
-            interm_rows[0] = bezier_interp_1d(control_points[0], u)
-            interm_rows[1] = bezier_interp_1d(control_points[1], u)
-            interm_rows[2] = bezier_interp_1d(control_points[2], u)
-            pt = bezier_interp_1d(interm_rows, v)
-            surface_points[iv, iu] = pt
-            surface_uvs[iv, iu] = np.array([u, v])
+            surface_points[:, iv, iu, :] = geometry.det_point_position(angles, [u, v])
+            surface_uvs[iv, iu, 0] = iu / (num_u - 1)
+            surface_uvs[iv, iu, 1] = iv / (num_v - 1)
 
-    surface_points = np.transpose(surface_points, (2, 0, 1, 3)) # (N, num_v, num_u, 3)
-    #print(f"surface_points: {surface_points.shape}")
-    #print(f"surface_uvs: {surface_uvs.shape}")
+    rays = np.empty((len(src_positions), 4, 2, 3)) # (N, 4, 2, 3)
 
-    rays = np.empty((4, 2, len(src_positions), 3))
+    rays[:, 0, 0, :] = src_positions
+    rays[:, 1, 0, :] = src_positions
+    rays[:, 2, 0, :] = src_positions
+    rays[:, 3, 0, :] = src_positions
 
-    rays[0, 0] = src_positions
-    rays[1, 0] = src_positions
-    rays[2, 0] = src_positions
-    rays[3, 0] = src_positions
-
-    rays[0, 1] = surface_points[:,  0,  0, :]
-    rays[1, 1] = surface_points[:,  0, -1, :]
-    rays[2, 1] = surface_points[:, -1, -1, :]
-    rays[3, 1] = surface_points[:, -1,  0, :]
-
-    rays = np.transpose(rays, (2, 0, 1, 3)) # (N, 4, 2, 3)
+    rays[:, 0, 1, :] = surface_points[:,  0,  0, :]
+    rays[:, 1, 1, :] = surface_points[:,  0, -1, :]
+    rays[:, 2, 1, :] = surface_points[:, -1, -1, :]
+    rays[:, 3, 1, :] = surface_points[:, -1,  0, :]
 
     return src_positions, rays, surface_points, surface_uvs # (N, 3) (N, 4, 2, 3) (N, num_v, num_u, 3), (num_v, num_u, 2)
 
@@ -404,8 +361,8 @@ def full_dataset():
 # Serve the compact precomputed full geometry NPZ file.
 # The npz file will contain the following keys:
 # "sources": Source positions. Shape: (N, 3).
-# "bezier_curves": Detector  Shape: (N, Rows, Columns).
-# "bezier_curves_uvs": The UV coordinates for each point of the detector. The same for all detector positions. Shape: (Rows, Columns).
+# "detector_surface": Detector  Shape: (N, Rows, Columns).
+# "detector_surface_uvs": The UV coordinates for each point of the detector. The same for all detector positions. Shape: (Rows, Columns).
 # "fov_rays": Lines connecting the source position to the edge poistions of the detector geometry. Shape: (N, 4, 2, 3).
 #########################################################
 @app.get("/full_geometry_npz")
@@ -450,15 +407,15 @@ def select_sample(sel: SampleSelect):
             cached_geometry = {
                 "sources": [],
                 "fov_rays": [],
-                "bezier_curves": [],
-                "bezier_curves_uvs": []
+                "detector_surface": [],
+                "detector_surface_uvs": []
             }
 
             start = time.time()
             src, rays, surface, surface_uv = generate_sensor_geometry(geometry)
             cached_geometry["sources"] = src.tolist()
-            cached_geometry["bezier_curves"] = surface.tolist()
-            cached_geometry["bezier_curves_uvs"] = surface_uv.tolist()
+            cached_geometry["detector_surface"] = surface.tolist()
+            cached_geometry["detector_surface_uvs"] = surface_uv.tolist()
             cached_geometry["fov_rays"] = rays.tolist()
             end = time.time()
             print(f"[DEBUG] Generating sensor geometry took {end - start} seconds")
@@ -470,8 +427,8 @@ def select_sample(sel: SampleSelect):
             np.savez_compressed(FULL_GEOM_NPZ,
                                 allow_pickle=False,
                                 sources=src.astype(np.float32),
-                                bezier_curves=surface.astype(np.float32),
-                                bezier_curves_uvs=surface_uv.astype(np.float32),
+                                detector_surface=surface.astype(np.float32),
+                                detector_surface_uvs=surface_uv.astype(np.float32),
                                 fov_rays=rays.astype(np.float32))
 
             #with gzip.open(FULL_GEOM_JSON_GZIP, "wt", encoding="utf-8") as f:

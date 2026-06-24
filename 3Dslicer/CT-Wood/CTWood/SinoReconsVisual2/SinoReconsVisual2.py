@@ -2041,10 +2041,10 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             polyData.Modified()
 
         def updateSensorGeometry(index: int):
-            bezier_curves = self.sampleData.geometry.get("bezier_curves", np.empty(0))
-            bezier_curves_uvs = self.sampleData.geometry.get("bezier_curves_uvs", np.empty(0))
-            curves = np.array(bezier_curves[index])
-            curve_uvs = np.array(bezier_curves_uvs)
+            detector_surface = self.sampleData.geometry.get("detector_surface", np.empty(0))
+            detector_surface_uvs = self.sampleData.geometry.get("detector_surface_uvs", np.empty(0))
+            curves = np.array(detector_surface[index])
+            curve_uvs = np.array(detector_surface_uvs)
 
             num_rows = len(curves)
             num_cols = len(curves[0])

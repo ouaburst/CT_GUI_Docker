@@ -3,6 +3,11 @@ import odl
 import typing
 import json
 from pathlib import Path
+import sys
+
+if (len(sys.argv) < 2):
+    print("A path to a directly to store the example data in is needed.")
+    sys.exit(1)
 
 detector_resolution = [512, 512]
 
@@ -35,8 +40,8 @@ phantom = odl.core.phantom.defrise(reco_space)
 proj_data = ray_trafo(phantom)
 
 # Write out the npy files.
-DATA_FOLDER = Path("/test/data/real_datasets/ml_ready/")
-SAMPLE_NAME = "phantom_1_1" # Match the sample index structure
+DATA_FOLDER = Path(sys.argv[1])
+SAMPLE_NAME = "phantom_1"
 SAMPLE_FOLDER = DATA_FOLDER / SAMPLE_NAME
 
 metadata = {
@@ -73,7 +78,6 @@ SAMPLE_FOLDER.mkdir(mode=0o777, parents=True, exist_ok = True)
 with open(SAMPLE_FOLDER / "metadata.json", "w") as f:
     json.dump(metadata, f, indent=2)
 os.chmod(SAMPLE_FOLDER / "metadata.json", stat.S_IWOTH | stat.S_IROTH | stat.S_IWGRP | stat.S_IRGRP | stat.S_IWUSR | stat.S_IRUSR)
-print(metadata)
 
 np.save(SAMPLE_FOLDER / "sinogram.npy", proj_data.data, False)
 np.save(SAMPLE_FOLDER / "angles.npy", geometry.angles, False)
@@ -82,11 +86,12 @@ distance_along_axis = np.dot(geometry.src_position(geometry.angles), geometry.ax
 np.save(SAMPLE_FOLDER / "axial_positions.npy", distance_along_axis)
 np.save(SAMPLE_FOLDER / "shifts", np.zeros((geometry.angles.shape[0], 3)))
 
-sample_config = {
-    # The path to the folders for the individual samples.
-    "samples_directory": str(DATA_FOLDER),
-    "samples": [ { "specie": "phantom", "tree_ID": 1, "disk_ID": 1  } ]
-}
-print(json.dumps(sample_config))
-with open("sample_config.json", "w") as f:
-    json.dump(sample_config, f)
+print(f"Wrote {SAMPLE_FOLDER / "metadata.json"}")
+
+samples = [ 
+    { "folder": SAMPLE_NAME, "name": "Phantom 1"  }
+]
+with open(DATA_FOLDER / "samples.json", "w") as f:
+    json.dump(samples, f)
+
+print(f"Wrote {DATA_FOLDER / "samples.json"}")

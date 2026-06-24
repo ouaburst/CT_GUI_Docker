@@ -83,9 +83,9 @@ This repo includes a Dockerfile that installs:
 
 - ASTRA Toolbox 2.1.3 (curved label)
 
-- PyTorch 1.12.1+cu113
+- PyTorch 1.12.1+cu121
 
-- VTK 9.2.6, FastAPI, PyVista, SciPy, pynrrd
+- VTK, FastAPI, PyVista, SciPy, pynrrd
 
 - ODL custom branch: astra_cylcone_binding
 
@@ -99,7 +99,7 @@ Inside the directory `CT_GUI_Docker/` type:
 
     docker build -t woodscan:cuda121 .
 
- ## Run the API server (GPU)   
+## Run the API server
 
     docker run --rm -it -p 8000:8000 \
      --gpus all \
@@ -121,11 +121,14 @@ Notes:
 
 -   **-v /media/Store-SSD:/media/Store-SSD:ro**: Mount dataset (read-only).
 
--   **woodscan:cuda113**: Docker image (built with CUDA 12.1, ODL, ASTRA, FastAPI).
+-   **woodscan:cuda113**: Docker image built in [the previous step](#build).
 
 -   **python -m uvicorn odl_stream_server:app**: Runs the FastAPI server inside the container.
 
-## API Endpoints ##
+## API Endpoints
+
+When running the server there is a Swagger UI available that can show the available API endpoints interactively.
+It is hosted at https://example.com/docs with `example.com` being replaced with your server (https://localhost:8000/docs if you are running the docker locally or ssh port forwarding).
 
 Root:
 
@@ -147,12 +150,14 @@ Geometry / Sinogram:
 
 -   **POST /run_reconstruction** --- Run reconstruction
 
-## License ##
+## License
 
 MIT --- see \<LICENSE>.
 
-## Acknowledgments ##
+## Acknowledgments
 
 -   **ODL** team for operator framework
 
 -   **ASTRA Toolbox** developers for GPU projectors
+
+-   **InfraVis** for development support

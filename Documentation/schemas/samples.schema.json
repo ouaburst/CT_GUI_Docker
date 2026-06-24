@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sample list",
+  "description": "The list of sample folders that the server should allow",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["folder", "name"],
+    "properties": {
+        "folder": { "type": "string", "description": "The folder that the sample data is in. Needs to be unique in the array." },
+        "name": { "type": "integer", "description": "The display name of the sample." }
+    }
+  }
+}

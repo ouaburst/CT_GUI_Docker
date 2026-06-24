@@ -24,9 +24,6 @@ import numpy as np
 from pathlib import Path
 from scipy.interpolate import interp1d
 
-BASE_DIR = Path(__file__).resolve().parent
-SAMPLE_CONFIG_PATH = BASE_DIR / "sample_config.json"
-
 #########################################################
 # main
 # Parse CLI args, locate the requested sample in the MITO
@@ -36,21 +33,17 @@ SAMPLE_CONFIG_PATH = BASE_DIR / "sample_config.json"
 def main():
     # Argument parser for command-line inputs
     parser = argparse.ArgumentParser()
-    parser.add_argument('--specie', type=str, required=True, help="Tree species")
-    parser.add_argument('--tree_ID', type=int, required=True, help="Tree identifier")
-    parser.add_argument('--disk_ID', type=int, required=True, help="Disk identifier")
-    parser.add_argument('--output_folder', type=str, default='images', help="Folder to save output images")
+    parser.add_argument('--sample_folder', type=Path, required=True, help="Path to the sample folder")
+    parser.add_argument('--output_path', type=Path, default='images', help="Path to save output nrrd image to.")
     parser.add_argument('--reconstruction_method', type=str, default='adjoint',
                         choices=['adjoint', 'fbp', 'landweber'], help="Reconstruction method to use")
     parser.add_argument('--parameters', type=str, default='{}',
                         help='Additional reconstruction parameters as JSON string')
 
-    # New: progress controls
     parser.add_argument('--progress_every', type=int, default=5,
                         help='Print progress every N iterations for iterative methods')
     parser.add_argument('--progress_path', type=str, default='',
                         help='Optional path to write JSONL progress updates')
-
 
     args = parser.parse_args()
 
@@ -70,15 +63,13 @@ def main():
                 pass
 
     # Print selected configuration
-    _progress(f"Tree specie: {args.specie}")
-    _progress(f"Tree ID: {args.tree_ID}")
-    _progress(f"Disk ID: {args.disk_ID}")
-    _progress(f"Output folder: {args.output_folder}")
+    _progress(f"Sample: {args.sample_folder}")
+    _progress(f"Output path: {args.output_path}")
     _progress(f"Reconstruction Method: {args.reconstruction_method}")
     _progress(f"Parameters: {args.parameters}")
 
     # Create output directory if it does not exist
-    os.makedirs(args.output_folder, exist_ok=True)
+    os.makedirs(args.output_path.parent, exist_ok=True)
 
     # Parse parameters JSON
     try:
@@ -86,7 +77,7 @@ def main():
     except json.JSONDecodeError:
         raise ValueError("Invalid JSON format in --parameters")
 
-    sample = load_sample(args.specie, args.tree_ID, args.disk_ID, params)
+    sample = load_sample(args.sample_folder, params)
 
     # === Start reconstruction timing ===
     start_time = time.time()
@@ -170,34 +161,28 @@ def main():
     }
 
     # Save the reconstructed volume as an NRRD file with method name
-    output_filename = f"tree{args.tree_ID}_disk{args.disk_ID}_{args.reconstruction_method}.nrrd"
-    output_path = os.path.join(args.output_folder, output_filename)
+    output_path = str(args.output_path)
 
     nrrd.write(output_path, reconstruction_np, header)
     _progress(f"Saved NRRD volume to {output_path}.")
 
-def load_sample_config() -> dict:
-    if not SAMPLE_CONFIG_PATH.exists():
-        raise FileNotFoundError(f"Config file not found: {SAMPLE_CONFIG_PATH}")
-    with open(SAMPLE_CONFIG_PATH) as f:
-        return json.load(f)
-
-def load_sample(specie: str, tree_ID: int, disk_ID: int, params: dict) -> dict:
-    config = load_sample_config()
-    data_folder_path = Path(config['samples_directory'])
-    sample_path = data_folder_path.joinpath(f'{specie}_{tree_ID}_{disk_ID}')
-
+def load_sample(sample_path: Path, params: dict) -> dict:
     sinogram_min = params["SINOGRAM_MIN"]
     sinogram_max = params["SINOGRAM_MAX"]
     
-    metadata = dict(json.load(open(sample_path.joinpath('metadata.json'))))
+    metadata = dict(json.load(open(sample_path / 'metadata.json')))
+    print(metadata)
 
     # Load geometry information
-    angles = np.load(sample_path.joinpath('angles.npy'), mmap_mode="r")[sinogram_min:sinogram_max]
-    axial_positions = np.load(sample_path.joinpath('axial_positions.npy'), mmap_mode="r")[sinogram_min:sinogram_max]
+    angles = np.load(sample_path / 'angles.npy', mmap_mode="r")[sinogram_min:sinogram_max]
+    axial_positions = np.load(sample_path / 'axial_positions.npy', mmap_mode="r")[sinogram_min:sinogram_max]
+    shifts = np.load(sample_path / "shifts.npy", mmap_mode="r")[sinogram_min:sinogram_max]
+    
+    angles_increasing = np.unwrap(angles)
+    z_corrected = axial_positions + shifts[:, 2]
     
     # Create operators
-    A, A_T = make_operators(angles, axial_positions, metadata, params)
+    A, A_T = make_operators(angles_increasing, z_corrected, metadata, params)
 
     # Package outputs
     data_dict = {
@@ -210,8 +195,8 @@ def load_sample(specie: str, tree_ID: int, disk_ID: int, params: dict) -> dict:
     return data_dict
 
 def make_operators(
-    angles: np.ndarray,
-    axial_positions: np.ndarray,
+    angles_increasing: np.ndarray,
+    z_corrected: np.ndarray,
     metadata: dict,
     reco_metadata: dict,
     torch = False
@@ -240,7 +225,7 @@ def make_operators(
     # Currently only ODL backend is supported
     assert metadata['GEOMETRY_ENGINE'] == 'ODL'
 
-    geometry = parse_ODL_geometry(angles, axial_positions, metadata)
+    geometry = parse_ODL_geometry(angles_increasing, z_corrected, metadata)
     reco_space = create_reconstruction_space(reco_metadata)
     forward_operator, adjoint_operator = create_ray_transforms(geometry, reco_space, reco_metadata.get("use_cache", False))
 
@@ -255,12 +240,12 @@ def make_operators(
     return forward_operator, adjoint_operator
 
 def parse_ODL_geometry(
-        angles: np.ndarray,
-        axial_positions: np.ndarray,
+        angles_increasing: np.ndarray,
+        z_corrected: np.ndarray,
         metadata: dict,
         ):
     if metadata['GEOMETRY_NAME'] == 'ConeBeamGeometry':
-        return parse_ODL_ConeBeamGeometry(angles, axial_positions, metadata)
+        return parse_ODL_ConeBeamGeometry(angles_increasing, z_corrected, metadata)
     else:
         raise NotImplementedError
 
@@ -270,11 +255,11 @@ def create_ray_transforms(geometry: Geometry, reco_space: odl.DiscretizedSpace, 
 
         return ray_transform, ray_transform_adjoint
 
-def create_reconstruction_space(metadata: dict) -> odl.DiscretizedSpace:
+def create_reconstruction_space(reco_metadata: dict) -> odl.DiscretizedSpace:
     # FIXME:
-    REC_MIN_X, REC_MIN_Y, REC_MIN_Z = metadata['REC_MIN_X'], metadata['REC_MIN_Y'], metadata['REC_MIN_Z']
-    REC_MAX_X, REC_MAX_Y, REC_MAX_Z = metadata['REC_MAX_X'], metadata['REC_MAX_Y'], metadata['REC_MAX_Z']
-    REC_NPX_X, REC_NPX_Y, REC_NPX_Z = metadata['REC_NPX_X'], metadata['REC_NPX_Y'], metadata['REC_NPX_Z'] #int((REC_MAX_Z - REC_MIN_Z) // metadata['REC_PIC_SIZE'])
+    REC_MIN_X, REC_MIN_Y, REC_MIN_Z = reco_metadata['REC_MIN_X'], reco_metadata['REC_MIN_Y'], reco_metadata['REC_MIN_Z']
+    REC_MAX_X, REC_MAX_Y, REC_MAX_Z = reco_metadata['REC_MAX_X'], reco_metadata['REC_MAX_Y'], reco_metadata['REC_MAX_Z']
+    REC_NPX_X, REC_NPX_Y, REC_NPX_Z = reco_metadata['REC_NPX_X'], reco_metadata['REC_NPX_Y'], reco_metadata['REC_NPX_Z']
     
     reco_space = odl.uniform_discr(
         min_pt=[REC_MIN_X, REC_MIN_Y, REC_MIN_Z],
@@ -285,8 +270,8 @@ def create_reconstruction_space(metadata: dict) -> odl.DiscretizedSpace:
     return reco_space
 
 def parse_ODL_ConeBeamGeometry(
-        angles : np.ndarray,
-        axial_positions: np.ndarray,
+        angles_increasing : np.ndarray,
+        z_corrected: np.ndarray,
         metadata: dict,
         ) -> ConeBeamGeometry:
     DET_X_MIN = metadata['DET_X_MIN']
@@ -300,17 +285,14 @@ def parse_ODL_ConeBeamGeometry(
             [DET_X_MAX, DET_Z_MAX],
             (DET_NPX_X, DET_NPX_Z))
 
-    angles_increasing = np.unwrap(angles)
     angle_partition = odl.nonuniform_partition(angles_increasing)
     
     z_shift_func = interp1d(
-        angles_increasing, axial_positions, kind="linear",
-        bounds_error=False, fill_value=(axial_positions[0], axial_positions[-1]) # type: ignore The function has a special case for fill_value being a 2-tuple.
+        angles_increasing, z_corrected, kind="linear",
+        bounds_error=False, fill_value=(z_corrected[0], z_corrected[-1]) # type: ignore The function has a special case for fill_value being a 2-tuple.
     )
 
     def shift_func(angle):
-        # FIXME: Use
-        #np.interp(angle, angles_increasing, z_corrected)
         res = np.zeros((len(angle), 3))
         res[:, 2] = z_shift_func(angle)
         return res
@@ -322,7 +304,7 @@ def parse_ODL_ConeBeamGeometry(
         det_radius=metadata["DET_RADIUS"],
         det_curvature_radius=(metadata["DET_CURVATURE_RADIUS"], None),
         pitch=0, # type: ignore The argument is a float, the function annotation is wrong.
-        axis=[0, 0, 1],
+        axis=metadata["ROTATION_AXIS"],
         src_shift_func=shift_func,     # could be set to a function of angle if needed
         det_shift_func=shift_func,
         translation=[0, 0, 0],

@@ -1,6 +1,3 @@
-{
-    "samples_directory": "/media/Store-SSD/real_datasets/ml_ready",
-    "samples": [
-        {"specie": "phantom", "tree_ID": 1, "disk_ID": 1}
-    ]
-}
+[
+    {"folder": "pine_16_1", "name": "Pine 16, Disk 1"}
+]

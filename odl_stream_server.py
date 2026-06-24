@@ -20,22 +20,31 @@ import time
 import PIL
 import PIL.Image
 import multiprocessing
-import typing
+from typing import Any
 from filelock import FileLock, Timeout
+from collections import OrderedDict
+from dataclasses import dataclass
+from functools import partial
 
 # #######################################################
 # Run:
 #   uvicorn odl_stream_server:app --reload --host 0.0.0.0 --port 8000
 # Notes:
-# - The app loads a default sample on startup from slicer_backend_config.json
-# - It streams geometry windows and per-projection sinogram slices
+# - The app loads a default sample on startup from /samples_directory/samples.json
+# - It streams geometry and per-projection sinogram slices
 # - It can also run reconstructions by invoking reconstruction.py
 # #######################################################
+
+@dataclass
+class SampleEntry:
+    """Class for storing sample entry information"""
+    folder: str
+    name: str
 
 # ---------------------------
 # Globals (populated on load)
 # ---------------------------
-sample_config: dict
+samples: OrderedDict[str, SampleEntry]
 sinogram: np.typing.NDArray[np.float32] # numpy array with shape (N, det_x, det_z)
 sinogramMin: np.float32 # Minimum value in the sinogram data
 sinogramMax: np.float32 # Maximum value in the sinogram data
@@ -46,9 +55,7 @@ metadata: dict           # dict with geometry + reconstruction grid settings
 geometry: ConeBeamGeometry # ODL ConeBeamGeometry constructed from dataset
 N = 0                    # number of projections
 cached_geometry: dict   # the geometry data
-sample_name: str
-
-
+current_sample: SampleEntry|None = None # the sample currently loaded
 
 # ---------------------------
 # Paths
@@ -57,27 +64,29 @@ BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
+# The folder containing samples should be mounted to /samples_directory
+SAMPLES_DIR = Path("/samples_directory")
+SAMPLES_JSON_PATH = SAMPLES_DIR / "samples.json"
+
 # Directory where reconstruction outputs (NRRDs) will be saved/served
 IMAGES_DIR = BASE_DIR / "images"
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 RECONSTRUCTION_CONFIG_PATH = BASE_DIR / "reconstruction_methods.json"
-SAMPLE_CONFIG_PATH = BASE_DIR / "sample_config.json"
 FULL_GEOM_NPZ = OUTPUT_DIR / "full_geometry.npz"
 
 SINOGRAM_CACHE_DIR = OUTPUT_DIR / "sinogram_cache"
 
 #########################################################
-# _load_sample_config
-# Load sample config JSON which describes available samples
-# and the bind-mounted volume root.
+# _load_samples_list
+# Load sample list JSON which describes available samples
 #########################################################
-def _load_sample_config() -> dict:
-    if not SAMPLE_CONFIG_PATH.exists():
-        raise FileNotFoundError(f"Config file not found: {SAMPLE_CONFIG_PATH}")
-    with open(SAMPLE_CONFIG_PATH) as f:
-        return json.load(f)
-
+def _load_samples_list() -> OrderedDict[str, SampleEntry]:
+    if not SAMPLES_JSON_PATH.exists():
+        raise FileNotFoundError(f"Sample list file not found: {SAMPLES_JSON_PATH}")
+    with open(SAMPLES_JSON_PATH) as f:
+        samples = json.load(f)
+    return OrderedDict((sample['folder'], SampleEntry(**sample)) for sample in samples)
 
 #########################################################
 # _resolve_sample_dir
@@ -96,7 +105,6 @@ def _resolve_sample_dir(cfg: dict, specie: str, tree_ID: int, disk_ID: int) -> P
     """
     vol_root = Path(cfg["samples_directory"])
     return vol_root / f"{specie}_{tree_ID}_{disk_ID}"
-
 
 #########################################################
 # _validate_reconstruction_geometry
@@ -125,7 +133,6 @@ def _validate_reconstruction_geometry(md: dict):
         print("  ✓ Volume size matches metadata.")
     cx = (min_x + max_x) / 2; cy = (min_y + max_y) / 2
     print(f"  Center of volume: ({cx:.2f}, {cy:.2f})")
-
 
 #########################################################
 # _load_sample_data
@@ -176,14 +183,13 @@ def _load_sample_data(sample_dir: Path):
     # The angles are all mod 2PI so we need to undo this operation
     # - Julius Häger 2026-03-26
     angles_increasing = np.unwrap(angles_raw)
+    angle_partition = odl.nonuniform_partition(angles_increasing)
 
     # Estimate helical pitch (z advance per full 2π revolution)
     angle_range = float(angles_increasing[-1] - angles_increasing[0])
     z_range = float(z_corrected[-1] - z_corrected[0])
     pitch = z_range * (2 * np.pi) / angle_range if angle_range != 0 else 0.0
     print(f"[INFO] Computed average pitch: {pitch:.2f} mm")
-
-    angle_partition = odl.nonuniform_partition(angles_increasing)
 
     # Create 2D detector partition using physical extents and number of pixels
     detector_partition = odl.uniform_partition(
@@ -300,15 +306,12 @@ async def log_to_access_time(request: Request, call_next):
 @app.on_event("startup")
 def startup():
     """Load config + default sample, then write output/full_geometry.json and cache trajectory."""
-    global sample_config, sample_name
+    global samples
 
     start = time.time()
-    sample_config = _load_sample_config()
-    if not sample_config.get("samples"):
-        raise RuntimeError("No samples listed in sample_config.json")
-    first = sample_config["samples"][0]
-    sample_name = ""
-    select_sample(SampleSelect(specie=first["specie"], tree_ID=int(first["tree_ID"]), disk_ID=int(first["disk_ID"])))
+    samples = _load_samples_list()
+    first = next(iter(samples.values()))
+    select_sample(SampleSelect(folder=first.folder))
     end = time.time()
     print(f"[INFO] Startup took {end - start} seconds")
 
@@ -321,12 +324,12 @@ def get_reconstruction_methods() -> FileResponse:
     return FileResponse(RECONSTRUCTION_CONFIG_PATH, media_type="application/json", filename="reconstruction_methods.json")
 
 #########################################################
-# get_sample_config (route)
-# Serve sample_config.json, a list of samples.
+# /samples.json (route)
+# Serve samples.json, the list of available samples.
 #########################################################
-@app.get("/sample_config.json")
-def get_sample_config() -> FileResponse:
-    return FileResponse(SAMPLE_CONFIG_PATH, media_type="application/json", filename="sample_config.json")
+@app.get("/samples.json")
+def get_samples() -> FileResponse:
+    return FileResponse(SAMPLES_JSON_PATH, media_type="application/json", filename="samples.json")
 
 #########################################################
 # serve_file (route)
@@ -374,9 +377,7 @@ def get_full_geometry_npz() -> FileResponse:
 
 # ----- Switch sample at runtime (optional)
 class SampleSelect(BaseModel):
-    specie: str
-    tree_ID: int
-    disk_ID: int
+    folder: str
 
 #########################################################
 # select_sample (route)
@@ -388,94 +389,83 @@ class SampleSelect(BaseModel):
 @app.post("/select_sample")
 def select_sample(sel: SampleSelect):
     """Switch active sample, reload arrays, and regenerate outputs."""
-    global cached_geometry, sample_name, sample_config, sinogram, sinogramMin, sinogramMax, metadata, sinogram
+    global samples, current_sample, cached_geometry, sinogram, sinogramMin, sinogramMax, metadata
 
-    # FIXME: Check that the requested sample is actually part of sample_config.json
-    # if the folder exists but there is no sample_config.json entry for it we shouldn't load it.
+    sample_folder = sel.folder
+    if sample_folder not in samples:
+        raise HTTPException(400, f"Sample with folder '{sample_folder}' does not exist. GET /samples.json for a list of valid samples.")
+    sample = samples[sample_folder]
 
-    try:
-        sample_dir = _resolve_sample_dir(sample_config, sel.specie, sel.tree_ID, sel.disk_ID)
-        new_sample_name = f"{sel.specie}_{sel.tree_ID}_{sel.disk_ID}"
-        if sample_name == None or sample_name != new_sample_name:
-            sample_name = new_sample_name
-            print(f"[INFO] Selecting sample {sample_name}...")
-            _load_sample_data(sample_dir)
+    sample_dir = SAMPLES_DIR / sample_folder
+    if current_sample == None or sample != current_sample:
+        current_sample = sample
+        print(f"[INFO] Selecting sample {sample.name} ({sample_dir})...")
+        _load_sample_data(sample_dir)
+        
+        print("[INFO] Precomputing and saving full geometry JSON to disk...")
+
+        # Rebuild the compact JSON & trajectory
+        cached_geometry = {
+            "sources": [],
+            "fov_rays": [],
+            "detector_surface": [],
+            "detector_surface_uvs": []
+        }
+
+        start = time.time()
+        src, rays, surface, surface_uv = generate_sensor_geometry(geometry)
+        cached_geometry["sources"] = src.tolist()
+        cached_geometry["detector_surface"] = surface.tolist()
+        cached_geometry["detector_surface_uvs"] = surface_uv.tolist()
+        cached_geometry["fov_rays"] = rays.tolist()
+        end = time.time()
+        print(f"[DEBUG] Generating sensor geometry took {end - start} seconds")
+
+        start = time.time()
+        np.savez_compressed(FULL_GEOM_NPZ,
+                            allow_pickle=False,
+                            sources=src.astype(np.float32),
+                            detector_surface=surface.astype(np.float32),
+                            detector_surface_uvs=surface_uv.astype(np.float32),
+                            fov_rays=rays.astype(np.float32))
+        end = time.time()
+        print(f"[DEBUG] Saving geometry and trajectory took {end - start} seconds")
+
+        print(f"[INFO] Full geometry saved to {FULL_GEOM_NPZ}")
+
+        sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample.folder
+        Path.mkdir(sample_sinogram_cache_dir, parents=True, exist_ok=True)
+
+        def generate_sinogram_cache():
+            start = time.time()
+            print(f"[INFO] Generating sinogram cache (jp2)")
+            sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample.folder
+            compress_slice_func = partial(compress_sinogram_slice_jp2, cache_dir=sample_sinogram_cache_dir)
+            # FIXME: Use cores - 1 instead of 32?
+            with multiprocessing.Pool(processes=32) as p:
+                p.map(compress_slice_func, range(N))
+                p.close()
+                p.join()
+            end = time.time()
             
-            print("[INFO] Precomputing and saving full geometry JSON to disk...")
+            import os
+            jp2_size = 0
+            for i in range(N):
+                jp2_size += os.path.getsize(sample_sinogram_cache_dir / f"{i}.jp2")
+            print(f"[INFO] Generated sinogram cache in {end - start} seconds ({jp2_size} b)")
 
-            # Rebuild the compact JSON & trajectory
-            cached_geometry = {
-                "sources": [],
-                "fov_rays": [],
-                "detector_surface": [],
-                "detector_surface_uvs": []
-            }
+        multiprocessing.Process(target=generate_sinogram_cache).start()
+    else:
+        print(f"[DEBUG] Sample '{current_sample.folder}' was already selected, doing nothing.")
 
-            start = time.time()
-            src, rays, surface, surface_uv = generate_sensor_geometry(geometry)
-            cached_geometry["sources"] = src.tolist()
-            cached_geometry["detector_surface"] = surface.tolist()
-            cached_geometry["detector_surface_uvs"] = surface_uv.tolist()
-            cached_geometry["fov_rays"] = rays.tolist()
-            end = time.time()
-            print(f"[DEBUG] Generating sensor geometry took {end - start} seconds")
+    return {"status": "ok", "sample_dir": str(sample_dir), "frames": N, "sinogram_shape": sinogram.shape, "sinogram_min": float(sinogramMin), "sinogram_max": float(sinogramMax), "metadata": metadata}
 
-            start = time.time()
-            #with open(FULL_GEOM_JSON, "wt") as f:
-            #    json.dump(cached_geometry, f)
-
-            np.savez_compressed(FULL_GEOM_NPZ,
-                                allow_pickle=False,
-                                sources=src.astype(np.float32),
-                                detector_surface=surface.astype(np.float32),
-                                detector_surface_uvs=surface_uv.astype(np.float32),
-                                fov_rays=rays.astype(np.float32))
-
-            #with gzip.open(FULL_GEOM_JSON_GZIP, "wt", encoding="utf-8") as f:
-            #    json.dump(cached_geometry, f)
-            end = time.time()
-            print(f"[DEBUG] Saving geometry and trajectory took {end - start} seconds")
-
-            print(f"[INFO] Full geometry saved to {FULL_GEOM_NPZ}")
-
-            sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
-            Path.mkdir(sample_sinogram_cache_dir, parents=True, exist_ok=True)
-
-            def generate_sinogram_cache():
-                start = time.time()
-                print(f"[INFO] Generating sinogram cache (jp2)")
-                sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
-                # FIXME: Use cores - 1 instead of 32?
-                with multiprocessing.Pool(processes=32) as p:
-                    p.map(compress_sinogram_slice_jp2, range(N))
-                    # FIXME: Some way to report progress...?
-                    p.close()
-                    p.join()
-                end = time.time()
-                
-                import os
-                jp2_size = 0
-                for i in range(N):
-                    jp2_size += os.path.getsize(sample_sinogram_cache_dir / f"{i}.jp2")
-                print(f"[INFO] Generated sinogram cache in {end - start} seconds ({jp2_size} b)")
-
-            multiprocessing.Process(target=generate_sinogram_cache).start()
-        else:
-            print(f"[DEBUG] Sample '{new_sample_name}' was already selected, doing nothing.")
-
-        return {"status": "ok", "sample_dir": str(sample_dir), "frames": N, "sinogram_shape": sinogram.shape, "sinogram_min": float(sinogramMin), "sinogram_max": float(sinogramMax), "metadata": metadata}
-    except Exception as e:
-        import traceback
-        print(f"[ERROR] {traceback.format_exc()}")
-        raise HTTPException(500, str(e))
-
-def compress_sinogram_slice_jp2(i):
-    global sample_name, sinogram, sinogramMin, sinogramMax
-    sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
+def compress_sinogram_slice_jp2(i, cache_dir: Path):
+    global sinogram, sinogramMin, sinogramMax
     
-    file_path = sample_sinogram_cache_dir / f"{i}.jp2"
-    json_file_path = sample_sinogram_cache_dir / f"{i}.jp2.json"
-    lock_path = sample_sinogram_cache_dir / f"{i}.jp2.lock"
+    file_path = cache_dir / f"{i}.jp2"
+    json_file_path = cache_dir / f"{i}.jp2.json"
+    lock_path = cache_dir / f"{i}.jp2.lock"
     lock = FileLock(lock_path)
     with lock.acquire(timeout=3):
         if Path.exists(file_path) == False:
@@ -489,13 +479,12 @@ def compress_sinogram_slice_jp2(i):
             with open(json_file_path, 'w') as f:
                 json.dump({ "slice_min": repr(float(slice_min)), "slice_max": repr(float(slice_max)) }, f)
 
-def compress_sinogram_slice_avif(i):
-    global sample_name, sinogram, sinogramMin, sinogramMax
-    sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
+def compress_sinogram_slice_avif(i, cache_dir: Path):
+    global sinogram, sinogramMin, sinogramMax
 
-    file_path = sample_sinogram_cache_dir / f"{i}.avif"
-    json_file_path = sample_sinogram_cache_dir / f"{i}.avif.json"
-    lock_path = sample_sinogram_cache_dir / f"{i}.avif.lock"
+    file_path = cache_dir / f"{i}.avif"
+    json_file_path = cache_dir / f"{i}.avif.json"
+    lock_path = cache_dir / f"{i}.avif.lock"
     lock = FileLock(lock_path)
     with lock.acquire(timeout=3):
         if Path.exists(file_path) == False:
@@ -565,9 +554,13 @@ def get_sinogram_slice(index: int) -> FileResponse:
 #########################################################
 @app.get("/get_sinogram_slice_fast/{index}")
 def get_sinogram_slice_fast(index: int) -> FileResponse:
-    global sample_name, N
+    global current_sample, N
+
+    if current_sample is None:
+        raise HTTPException(500, "No sample is currently selected. This is a server error.")
+
     print(f"[DEBUG] Requested index: {index}")
-    sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / sample_name
+    sample_sinogram_cache_dir = SINOGRAM_CACHE_DIR / current_sample.folder
     print(f"[DEBUG] Cache dir: {sample_sinogram_cache_dir}")
 
     if index < 0 or index >= N:
@@ -582,7 +575,7 @@ def get_sinogram_slice_fast(index: int) -> FileResponse:
     else:
         print("[DEBUG] Sinogram cache miss")
         try:
-            compress_sinogram_slice_jp2(index)
+            compress_sinogram_slice_jp2(index, sample_sinogram_cache_dir)
         except Timeout as e:
             raise HTTPException(500, f'Timeout while waiting for lock file \'{e.lock_file}\' for a long time. Stale lock or sinogram slice compression taking a long time?')
     
@@ -598,12 +591,9 @@ def get_sinogram_slice_fast(index: int) -> FileResponse:
 
 # ----- Run reconstruction inside this container (no SSH/Apptainer)
 class ReconRequest(BaseModel):
-    specie: str
-    tree_ID: int
-    disk_ID: int
+    sample_folder: str
     method: str                  # "fbp" | "landweber" | "adjoint" | ...
     parameters: dict | None = None
-
 
 #########################################################
 # get_supported_methods
@@ -638,7 +628,6 @@ def get_supported_methods() -> list[str]:
     # Safe fallback if anything goes wrong
     return ["adjoint", "fbp", "landweber"]
 
-
 #########################################################
 # run_reconstruction (route)
 # Trigger a reconstruction by calling reconstruction.py
@@ -651,6 +640,8 @@ def get_supported_methods() -> list[str]:
 #########################################################
 @app.post("/run_reconstruction")
 def run_reconstruction(req: ReconRequest, request: Request):
+    global samples
+
     supported_methods = get_supported_methods()
     method = req.method.lower()
 
@@ -659,26 +650,21 @@ def run_reconstruction(req: ReconRequest, request: Request):
     if method not in supported_methods:
         raise HTTPException(400, f"Unsupported method '{req.method}'. Allowed methods are: {supported_methods}")
 
-    # Validate sample exists (re-uses config + path helpers)
-    cfg = _load_sample_config()
-    sample_dir = _resolve_sample_dir(cfg, req.specie, req.tree_ID, req.disk_ID)
-    if not sample_dir.exists():
-        raise HTTPException(400, f"Sample not found: {sample_dir}")
-
+    if req.sample_folder not in samples:
+        raise HTTPException(400, f"Sample with folder '{req.sample_folder}' does not exist. GET /samples.json for a list of valid samples.")
+    
     # Ensure output dir
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
-    out_name = f"tree{req.tree_ID}_disk{req.disk_ID}_{method}.nrrd"
+    out_name = f"{req.sample_folder}_{method}.nrrd"
     out_path = IMAGES_DIR / out_name
 
     # Build command for reconstruction.py
     cmd = [
         "python", "-u", "reconstruction.py",
-        "--specie", str(req.specie),
-        "--tree_ID", str(req.tree_ID),
-        "--disk_ID", str(req.disk_ID),
+        "--sample_folder", str(SAMPLES_DIR / req.sample_folder),
         "--reconstruction_method", method,
-        "--output_folder", str(IMAGES_DIR),
+        "--output_path", str(out_path),
     ]
 
     # Pass optional parameters as a JSON blob to the script
@@ -709,7 +695,6 @@ def run_reconstruction(req: ReconRequest, request: Request):
         "filename": out_name,
         "url": f"/images/{out_name}"
     }
-
 
 #########################################################
 # root (route)

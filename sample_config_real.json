@@ -1,665 +1,134 @@
-{
-    "samples_directory": "/media/Store-SSD/real_datasets/ml_ready",
-    "samples": [
-        {
-            "specie": "pine",
-            "tree_ID": 16,
-            "disk_ID": 1
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 16,
-            "disk_ID": 2
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 16,
-            "disk_ID": 3
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 16,
-            "disk_ID": 4
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 16,
-            "disk_ID": 5
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 16,
-            "disk_ID": 6
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 16,
-            "disk_ID": 7
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 16,
-            "disk_ID": 8
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 16,
-            "disk_ID": 9
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 16,
-            "disk_ID": 10
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 16,
-            "disk_ID": 11
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 16,
-            "disk_ID": 12
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 16,
-            "disk_ID": 13
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 16,
-            "disk_ID": 14
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 16,
-            "disk_ID": 15
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 16,
-            "disk_ID": 16
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 17,
-            "disk_ID": 5
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 17,
-            "disk_ID": 6
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 17,
-            "disk_ID": 7
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 17,
-            "disk_ID": 8
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 17,
-            "disk_ID": 9
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 17,
-            "disk_ID": 10
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 17,
-            "disk_ID": 11
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 17,
-            "disk_ID": 12
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 18,
-            "disk_ID": 1
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 18,
-            "disk_ID": 2
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 18,
-            "disk_ID": 3
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 18,
-            "disk_ID": 4
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 18,
-            "disk_ID": 5
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 18,
-            "disk_ID": 6
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 18,
-            "disk_ID": 7
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 18,
-            "disk_ID": 8
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 18,
-            "disk_ID": 13
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 18,
-            "disk_ID": 14
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 18,
-            "disk_ID": 15
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 18,
-            "disk_ID": 16
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 19,
-            "disk_ID": 1
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 19,
-            "disk_ID": 2
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 19,
-            "disk_ID": 3
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 19,
-            "disk_ID": 4
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 19,
-            "disk_ID": 5
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 19,
-            "disk_ID": 6
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 19,
-            "disk_ID": 7
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 19,
-            "disk_ID": 8
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 19,
-            "disk_ID": 9
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 19,
-            "disk_ID": 10
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 19,
-            "disk_ID": 11
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 19,
-            "disk_ID": 12
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 19,
-            "disk_ID": 13
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 19,
-            "disk_ID": 14
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 19,
-            "disk_ID": 15
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 19,
-            "disk_ID": 16
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 20,
-            "disk_ID": 1
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 20,
-            "disk_ID": 2
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 20,
-            "disk_ID": 3
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 20,
-            "disk_ID": 4
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 20,
-            "disk_ID": 5
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 20,
-            "disk_ID": 6
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 20,
-            "disk_ID": 7
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 20,
-            "disk_ID": 8
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 20,
-            "disk_ID": 9
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 20,
-            "disk_ID": 10
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 20,
-            "disk_ID": 11
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 20,
-            "disk_ID": 12
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 20,
-            "disk_ID": 13
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 20,
-            "disk_ID": 14
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 20,
-            "disk_ID": 15
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 20,
-            "disk_ID": 16
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 21,
-            "disk_ID": 1
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 21,
-            "disk_ID": 2
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 21,
-            "disk_ID": 3
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 21,
-            "disk_ID": 4
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 21,
-            "disk_ID": 5
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 21,
-            "disk_ID": 6
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 21,
-            "disk_ID": 7
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 21,
-            "disk_ID": 8
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 21,
-            "disk_ID": 9
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 21,
-            "disk_ID": 10
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 21,
-            "disk_ID": 11
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 21,
-            "disk_ID": 12
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 21,
-            "disk_ID": 13
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 21,
-            "disk_ID": 14
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 21,
-            "disk_ID": 15
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 21,
-            "disk_ID": 16
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 22,
-            "disk_ID": 1
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 22,
-            "disk_ID": 2
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 22,
-            "disk_ID": 3
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 22,
-            "disk_ID": 4
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 22,
-            "disk_ID": 5
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 22,
-            "disk_ID": 6
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 22,
-            "disk_ID": 7
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 22,
-            "disk_ID": 8
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 22,
-            "disk_ID": 9
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 22,
-            "disk_ID": 10
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 22,
-            "disk_ID": 11
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 22,
-            "disk_ID": 12
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 22,
-            "disk_ID": 13
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 22,
-            "disk_ID": 14
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 22,
-            "disk_ID": 15
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 22,
-            "disk_ID": 16
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 23,
-            "disk_ID": 1
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 23,
-            "disk_ID": 2
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 23,
-            "disk_ID": 3
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 23,
-            "disk_ID": 4
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 23,
-            "disk_ID": 5
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 23,
-            "disk_ID": 6
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 23,
-            "disk_ID": 7
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 23,
-            "disk_ID": 8
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 23,
-            "disk_ID": 9
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 23,
-            "disk_ID": 10
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 23,
-            "disk_ID": 11
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 23,
-            "disk_ID": 12
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 23,
-            "disk_ID": 13
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 23,
-            "disk_ID": 14
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 23,
-            "disk_ID": 15
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 23,
-            "disk_ID": 16
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 24,
-            "disk_ID": 1
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 24,
-            "disk_ID": 2
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 24,
-            "disk_ID": 3
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 24,
-            "disk_ID": 4
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 24,
-            "disk_ID": 5
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 24,
-            "disk_ID": 6
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 24,
-            "disk_ID": 7
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 24,
-            "disk_ID": 8
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 24,
-            "disk_ID": 9
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 24,
-            "disk_ID": 10
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 24,
-            "disk_ID": 11
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 24,
-            "disk_ID": 12
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 24,
-            "disk_ID": 13
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 24,
-            "disk_ID": 14
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 24,
-            "disk_ID": 15
-        },
-        {
-            "specie": "pine",
-            "tree_ID": 24,
-            "disk_ID": 16
-        }
-    ]
-}
+[
+    { "folder": "pine_16_1", "name": "Pine 16, Disk 1" },
+    { "folder": "pine_16_2", "name": "Pine 16, Disk 2" },
+    { "folder": "pine_16_3", "name": "Pine 16, Disk 3" },
+    { "folder": "pine_16_4", "name": "Pine 16, Disk 4" },
+    { "folder": "pine_16_5", "name": "Pine 16, Disk 5" },
+    { "folder": "pine_16_6", "name": "Pine 16, Disk 6" },
+    { "folder": "pine_16_7", "name": "Pine 16, Disk 7" },
+    { "folder": "pine_16_8", "name": "Pine 16, Disk 8" },
+    { "folder": "pine_16_9", "name": "Pine 16, Disk 9" },
+    { "folder": "pine_16_10", "name": "Pine 16, Disk 10" },
+    { "folder": "pine_16_11", "name": "Pine 16, Disk 11" },
+    { "folder": "pine_16_12", "name": "Pine 16, Disk 12" },
+    { "folder": "pine_16_13", "name": "Pine 16, Disk 13" },
+    { "folder": "pine_16_14", "name": "Pine 16, Disk 14" },
+    { "folder": "pine_16_15", "name": "Pine 16, Disk 15" },
+    { "folder": "pine_16_16", "name": "Pine 16, Disk 16" },
+    { "folder": "pine_17_5", "name": "Pine 17, Disk 5" },
+    { "folder": "pine_17_6", "name": "Pine 17, Disk 6" },
+    { "folder": "pine_17_7", "name": "Pine 17, Disk 7" },
+    { "folder": "pine_17_8", "name": "Pine 17, Disk 8" },
+    { "folder": "pine_17_9", "name": "Pine 17, Disk 9" },
+    { "folder": "pine_17_10", "name": "Pine 17, Disk 10" },
+    { "folder": "pine_17_11", "name": "Pine 17, Disk 11" },
+    { "folder": "pine_17_12", "name": "Pine 17, Disk 12" },
+    { "folder": "pine_18_1", "name": "Pine 18, Disk 1" },
+    { "folder": "pine_18_2", "name": "Pine 18, Disk 2" },
+    { "folder": "pine_18_3", "name": "Pine 18, Disk 3" },
+    { "folder": "pine_18_4", "name": "Pine 18, Disk 4" },
+    { "folder": "pine_18_5", "name": "Pine 18, Disk 5" },
+    { "folder": "pine_18_6", "name": "Pine 18, Disk 6" },
+    { "folder": "pine_18_7", "name": "Pine 18, Disk 7" },
+    { "folder": "pine_18_8", "name": "Pine 18, Disk 8" },
+    { "folder": "pine_18_13", "name": "Pine 18, Disk 13" },
+    { "folder": "pine_18_14", "name": "Pine 18, Disk 14" },
+    { "folder": "pine_18_15", "name": "Pine 18, Disk 15" },
+    { "folder": "pine_18_16", "name": "Pine 18, Disk 16" },
+    { "folder": "pine_19_1", "name": "Pine 19, Disk 1" },
+    { "folder": "pine_19_2", "name": "Pine 19, Disk 2" },
+    { "folder": "pine_19_3", "name": "Pine 19, Disk 3" },
+    { "folder": "pine_19_4", "name": "Pine 19, Disk 4" },
+    { "folder": "pine_19_5", "name": "Pine 19, Disk 5" },
+    { "folder": "pine_19_6", "name": "Pine 19, Disk 6" },
+    { "folder": "pine_19_7", "name": "Pine 19, Disk 7" },
+    { "folder": "pine_19_8", "name": "Pine 19, Disk 8" },
+    { "folder": "pine_19_9", "name": "Pine 19, Disk 9" },
+    { "folder": "pine_19_10", "name": "Pine 19, Disk 10" },
+    { "folder": "pine_19_11", "name": "Pine 19, Disk 11" },
+    { "folder": "pine_19_12", "name": "Pine 19, Disk 12" },
+    { "folder": "pine_19_13", "name": "Pine 19, Disk 13" },
+    { "folder": "pine_19_14", "name": "Pine 19, Disk 14" },
+    { "folder": "pine_19_15", "name": "Pine 19, Disk 15" },
+    { "folder": "pine_19_16", "name": "Pine 19, Disk 16" },
+    { "folder": "pine_20_1", "name": "Pine 20, Disk 1" },
+    { "folder": "pine_20_2", "name": "Pine 20, Disk 2" },
+    { "folder": "pine_20_3", "name": "Pine 20, Disk 3" },
+    { "folder": "pine_20_4", "name": "Pine 20, Disk 4" },
+    { "folder": "pine_20_5", "name": "Pine 20, Disk 5" },
+    { "folder": "pine_20_6", "name": "Pine 20, Disk 6" },
+    { "folder": "pine_20_7", "name": "Pine 20, Disk 7" },
+    { "folder": "pine_20_8", "name": "Pine 20, Disk 8" },
+    { "folder": "pine_20_9", "name": "Pine 20, Disk 9" },
+    { "folder": "pine_20_10", "name": "Pine 20, Disk 10" },
+    { "folder": "pine_20_11", "name": "Pine 20, Disk 11" },
+    { "folder": "pine_20_12", "name": "Pine 20, Disk 12" },
+    { "folder": "pine_20_13", "name": "Pine 20, Disk 13" },
+    { "folder": "pine_20_14", "name": "Pine 20, Disk 14" },
+    { "folder": "pine_20_15", "name": "Pine 20, Disk 15" },
+    { "folder": "pine_20_16", "name": "Pine 20, Disk 16" },
+    { "folder": "pine_21_1", "name": "Pine 21, Disk 1" },
+    { "folder": "pine_21_2", "name": "Pine 21, Disk 2" },
+    { "folder": "pine_21_3", "name": "Pine 21, Disk 3" },
+    { "folder": "pine_21_4", "name": "Pine 21, Disk 4" },
+    { "folder": "pine_21_5", "name": "Pine 21, Disk 5" },
+    { "folder": "pine_21_6", "name": "Pine 21, Disk 6" },
+    { "folder": "pine_21_7", "name": "Pine 21, Disk 7" },
+    { "folder": "pine_21_8", "name": "Pine 21, Disk 8" },
+    { "folder": "pine_21_9", "name": "Pine 21, Disk 9" },
+    { "folder": "pine_21_10", "name": "Pine 21, Disk 10" },
+    { "folder": "pine_21_11", "name": "Pine 21, Disk 11" },
+    { "folder": "pine_21_12", "name": "Pine 21, Disk 12" },
+    { "folder": "pine_21_13", "name": "Pine 21, Disk 13" },
+    { "folder": "pine_21_14", "name": "Pine 21, Disk 14" },
+    { "folder": "pine_21_15", "name": "Pine 21, Disk 15" },
+    { "folder": "pine_21_16", "name": "Pine 21, Disk 16" },
+    { "folder": "pine_22_1", "name": "Pine 22, Disk 1" },
+    { "folder": "pine_22_2", "name": "Pine 22, Disk 2" },
+    { "folder": "pine_22_3", "name": "Pine 22, Disk 3" },
+    { "folder": "pine_22_4", "name": "Pine 22, Disk 4" },
+    { "folder": "pine_22_5", "name": "Pine 22, Disk 5" },
+    { "folder": "pine_22_6", "name": "Pine 22, Disk 6" },
+    { "folder": "pine_22_7", "name": "Pine 22, Disk 7" },
+    { "folder": "pine_22_8", "name": "Pine 22, Disk 8" },
+    { "folder": "pine_22_9", "name": "Pine 22, Disk 9" },
+    { "folder": "pine_22_10", "name": "Pine 22, Disk 10" },
+    { "folder": "pine_22_11", "name": "Pine 22, Disk 11" },
+    { "folder": "pine_22_12", "name": "Pine 22, Disk 12" },
+    { "folder": "pine_22_13", "name": "Pine 22, Disk 13" },
+    { "folder": "pine_22_14", "name": "Pine 22, Disk 14" },
+    { "folder": "pine_22_15", "name": "Pine 22, Disk 15" },
+    { "folder": "pine_22_16", "name": "Pine 22, Disk 16" },
+    { "folder": "pine_23_1", "name": "Pine 23, Disk 1" },
+    { "folder": "pine_23_2", "name": "Pine 23, Disk 2" },
+    { "folder": "pine_23_3", "name": "Pine 23, Disk 3" },
+    { "folder": "pine_23_4", "name": "Pine 23, Disk 4" },
+    { "folder": "pine_23_5", "name": "Pine 23, Disk 5" },
+    { "folder": "pine_23_6", "name": "Pine 23, Disk 6" },
+    { "folder": "pine_23_7", "name": "Pine 23, Disk 7" },
+    { "folder": "pine_23_8", "name": "Pine 23, Disk 8" },
+    { "folder": "pine_23_9", "name": "Pine 23, Disk 9" },
+    { "folder": "pine_23_10", "name": "Pine 23, Disk 10" },
+    { "folder": "pine_23_11", "name": "Pine 23, Disk 11" },
+    { "folder": "pine_23_12", "name": "Pine 23, Disk 12" },
+    { "folder": "pine_23_13", "name": "Pine 23, Disk 13" },
+    { "folder": "pine_23_14", "name": "Pine 23, Disk 14" },
+    { "folder": "pine_23_15", "name": "Pine 23, Disk 15" },
+    { "folder": "pine_23_16", "name": "Pine 23, Disk 16" },
+    { "folder": "pine_24_1", "name": "Pine 24, Disk 1" },
+    { "folder": "pine_24_2", "name": "Pine 24, Disk 2" },
+    { "folder": "pine_24_3", "name": "Pine 24, Disk 3" },
+    { "folder": "pine_24_4", "name": "Pine 24, Disk 4" },
+    { "folder": "pine_24_5", "name": "Pine 24, Disk 5" },
+    { "folder": "pine_24_6", "name": "Pine 24, Disk 6" },
+    { "folder": "pine_24_7", "name": "Pine 24, Disk 7" },
+    { "folder": "pine_24_8", "name": "Pine 24, Disk 8" },
+    { "folder": "pine_24_9", "name": "Pine 24, Disk 9" },
+    { "folder": "pine_24_10", "name": "Pine 24, Disk 10" },
+    { "folder": "pine_24_11", "name": "Pine 24, Disk 11" },
+    { "folder": "pine_24_12", "name": "Pine 24, Disk 12" },
+    { "folder": "pine_24_13", "name": "Pine 24, Disk 13" },
+    { "folder": "pine_24_14", "name": "Pine 24, Disk 14" },
+    { "folder": "pine_24_15", "name": "Pine 24, Disk 15" },
+    { "folder": "pine_24_16", "name": "Pine 24, Disk 16" }
+]

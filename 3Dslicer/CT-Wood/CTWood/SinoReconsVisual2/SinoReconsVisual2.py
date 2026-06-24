@@ -118,9 +118,8 @@ class Vtk3DSceneObjects:
         pass
 
 class SampleData:
-    specie: str
-    tree_ID: int
-    disk_ID: int
+    folder: str
+    name: str
 
     totalSamples: int
 
@@ -227,8 +226,8 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
     sceneObjects: Vtk3DSceneObjects
     sampleData: SampleData
     reconstructionSettingsWidgets: dict[str, qt.QWidget] = {}
-    # Server sample configuration json, see sample_config.json
-    sample_config: dict
+    # Server sample list, see samples.json
+    samples: list
     # Server reconstruction methods configuration json, see reconstruction_methods.json
     reconstruction_methods: dict
 
@@ -606,9 +605,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             slicer.util.errorDisplay("No sample selected, cannot run reconstruction.")
             return
         
-        specie = sample["specie"]
-        tree_ID = sample["tree_ID"]
-        disk_ID = sample["disk_ID"]
+        sample_folder = sample['folder']
 
         # Method + parameters
         method = (self.ui.reconstructionMethodComboBox.currentText or "").lower()
@@ -653,9 +650,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         print(params)
 
         payload = {
-            "specie": specie,
-            "tree_ID": int(tree_ID),
-            "disk_ID": int(disk_ID),
+            "sample_folder": sample_folder,
             "method": method,
             "parameters": params,
         }
@@ -733,7 +728,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             if output_url:
                 filename = output_url.rsplit("/", 1)[-1]
             else:
-                filename = f"tree{tree_ID}_disk{disk_ID}_{method}.nrrd"
+                filename = f"{sample_folder}_{method}.nrrd"
 
             volume = stream_nrrd_from_url(filename, base, progress)
             progress.close()
@@ -842,21 +837,18 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         base = self._currentBaseUrl()
 
         try:
-            response = self.session.get(f"{base}/sample_config.json", timeout=5)
+            response = self.session.get(f"{base}/samples.json", timeout=5)
             response.raise_for_status()
-            self.sample_config = response.json()
+            self.samples = response.json()
 
             response = self.session.get(f"{base}/reconstruction_methods.json", timeout=5)
             response.raise_for_status()
             self.reconstruction_methods = response.json()
 
             # Populate sample combo box
-            samples = self.sample_config.get("samples", [])
             self.ui.sampleSelectorComboBox.clear()
-            for sample in samples:
-                # expect keys: specie, tree_ID, disk_ID
-                sample_text = f"Tree {sample['tree_ID']} - Disk {sample['disk_ID']}"
-                self.ui.sampleSelectorComboBox.addItem(sample_text, sample)
+            for sample in self.samples:
+                self.ui.sampleSelectorComboBox.addItem(sample['name'], sample)
             self.ui.selectSampleLabel.setEnabled(True)
             self.ui.sampleSelectorComboBox.setEnabled(True)
             self.ui.loadSampleButton.setEnabled(True)
@@ -879,26 +871,25 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             base = self._currentBaseUrl()
 
             sample = self.ui.sampleSelectorComboBox.currentData
-            print(f"[INFO] Selecting sample: {sample["specie"]} {sample["tree_ID"]} {sample["disk_ID"]}")
+            print(f"[INFO] Selecting sample: {sample['name']} ({sample['folder']})")
 
             url = f"{base}/select_sample"
             start = time.time()
-            payload = { "specie": sample["specie"], "tree_ID": int(sample["tree_ID"]), "disk_ID": int(sample["disk_ID"]) }
+            payload = { "folder": sample['folder'] }
             response = self.session.post(url, json=payload, timeout=300)  # Up to 5 minutes
             if response.status_code != 200:
                 self.ui.sinogramWidget.setEnabled(False)
                 self.ui.reconstructionWidget.setEnabled(False)
                 self.ui.roiWidget.setEnabled(False)
                 self.ui.statusLabel.setText('Status: <font color="red">Failed to load sample</font>')
-                slicer.util.errorDisplay(f"Failed to load sample {response.status_code}\n{response.content}")
+                slicer.util.errorDisplay(f"Failed to load sample: {response.status_code}\n{response.content}")
             response_json = response.json()
             self.sampleData.sinogram_min_value = response_json["sinogram_min"]
             self.sampleData.sinogram_max_value = response_json["sinogram_max"]
             self.sampleData.sinogram_shape = tuple(response_json["sinogram_shape"])
             print("shape ", self.sampleData.sinogram_shape)
-            self.sampleData.specie = str(sample["specie"])
-            self.sampleData.tree_ID = int(sample["tree_ID"])
-            self.sampleData.disk_ID = int(sample["disk_ID"])
+            self.sampleData.folder = sample['folder']
+            self.sampleData.name = sample['name']
             end = time.time()
             print(f"[INFO] Selecting sample took: {end-start} seconds")
 
@@ -964,7 +955,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.ui.metadataTableWidget.sortingEnabled = True
 
             # FIXME: linux and macOS?
-            sample_roi_dir = Path(os.path.expanduser(f"~/Documents/SinoRecons/{self.sampleData.specie}_{self.sampleData.tree_ID}_{self.sampleData.disk_ID}/"))
+            sample_roi_dir = Path(os.path.expanduser(f"~/Documents/SinoRecons/{self.sampleData.folder}/"))
             self.clearROIs()
             self.loadROIsForSample(sample_roi_dir)
             # Start with no ROI selected.
@@ -1341,7 +1332,7 @@ class SinoReconsVisual2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin)
             self.setROIEditControlVisibility(itemData, False)
 
     def _getSampleDirectory(self) -> Path:
-        return Path(os.path.expanduser(f"~/Documents/SinoRecons/{self.sampleData.specie}_{self.sampleData.tree_ID}_{self.sampleData.disk_ID}"))
+        return Path(os.path.expanduser(f"~/Documents/SinoRecons/{self.sampleData.folder}"))
     
     def saveROIClicked(self):
         if self.ui.roiListWidget.currentRow != -1:

@@ -103,28 +103,37 @@ Inside the directory `CT_GUI_Docker/` type:
 ## Run the API server
 
     docker run --rm -it -p 8000:8000 \
-     --gpus all \
-     -v /media/Store-SSD:/media/Store-SSD:ro \
-     woodscan:cuda121 \
-     python -m uvicorn odl_stream_server:app --host 0.0.0.0 --port 8000
+    --gpus all \
+    -v /media/Store-SSD:/media/Store-SSD:ro \
+    --mount type=bind,source=/media/Store-SSD/real_datasets/ml_ready,target=/samples_directory,readonly \
+    woodscan:cuda121 \
+    python -m uvicorn odl_stream_server:app --host 0.0.0.0 --port 8000
 
 Notes:
 
--   **--rm**: Remove container after exit (keeps system clean).
+- **`--rm`**: Removes the container after it exits.
 
--   **-it**: Interactive terminal (view logs in real time).
+- **`-it`**: Runs with an interactive terminal so server logs are displayed in real time.
 
--   **-p 8000:8000**: Map container port 8000 → host port 8000 (<http://localhost:8000>).
+- **`-p 8000:8000`**: Maps port 8000 in the container to port 8000 on the host.
 
--   **--gpus all**: Use all available GPUs (requires nvidia-container-toolkit).
+- **`--gpus all`**: Gives the container access to all available GPUs. This requires NVIDIA Container Toolkit.
 
-    -   Limit to one GPU: --gpus '"device=0"' or -e CUDA_VISIBLE_DEVICES=0.
+- To restrict execution to one GPU, use **`--gpus '"device=0"'`** or **`-e CUDA_VISIBLE_DEVICES=0`**.
 
--   **-v /media/Store-SSD:/media/Store-SSD:ro**: Mount dataset (read-only).
+- **`-v /media/Store-SSD:/media/Store-SSD:ro`**: Mounts the complete dataset storage inside the container in read-only mode.
 
--   **woodscan:cuda113**: Docker image built in [the previous step](#build).
+- **`--mount type=bind,source=/media/Store-SSD/real_datasets/ml_ready,target=/samples_directory,readonly`**: Makes the directory containing `samples.json` available at the location expected by the server: `/samples_directory/samples.json`.
 
--   **python -m uvicorn odl_stream_server:app**: Runs the FastAPI server inside the container.
+- **`woodscan:cuda121`**: Uses the CUDA 12.1 Docker image built in the [previous step](#build).
+
+- **`python -m uvicorn odl_stream_server:app`**: Starts the FastAPI application inside the container.
+
+- **`--host 0.0.0.0`**: Makes the server listen on all container network interfaces.
+
+- **`--port 8000`**: Runs the FastAPI server on container port 8000.
+
+After startup, access the service at `http://localhost:8000` when running locally. When the container runs on a remote SSH host, use the server address or an SSH port-forwarding tunnel.
 
 ## API Endpoints
 

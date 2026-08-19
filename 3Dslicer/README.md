@@ -11,13 +11,13 @@ This extension has been developed with 3D Slicer version 5.6.2.
    - Open 3D Slicer.
    - Go to the "Edit" menu and choose "Application Settings".
    - In the Application Settings, navigate to the "Modules" section.
-   - You will see an option to "Add" new module paths. Click on "Add" and select the folder containing the extension `/3Dslicer/CT-Wood/CTWood/LoadCTData`. 
+   - You will see an option to "Add" new module paths. Click on "Add" and select the folder containing the extension `CT_GUI_Docker\3Dslicer\CT-Wood\CTWood\SinoReconsVisual2`.
 
 **Restart 3D Slicer**:
    - Restart 3D Slicer to load the new extension. Ensure that the module path to the extension's folder is correctly set, so Slicer can recognize and load the extension.
 
 **Verify the Extension**:
-   - After restarting, check if the extension appears in the module drop-down menu or under the appropriate category in Slicer. This confirms that the extension is loaded.
+   - After restarting, check if the extension appears in the module drop-down menu `Utilities\SinoReconsVisual2`. This confirms that the extension is loaded.
 
 ## SinoReconsVisual Extension
 SinoReconsVisual is a custom tool for 3D Slicer developed in Python.

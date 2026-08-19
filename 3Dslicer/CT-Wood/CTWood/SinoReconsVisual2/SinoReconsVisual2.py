@@ -43,7 +43,7 @@ class VersionNotSupportedError(Exception):
 # Settings helpers
 # -----------------------------
 SETTINGS_KEY_BACKEND_URL = "SinoReconsVisual2/BackendUrl"
-DEFAULT_BACKEND_URL = "http://b9398.research.ltu.se:8000"
+DEFAULT_BACKEND_URL = "http://<server_address>:8000"
 
 SETTINGS_KEY_SHOW_SOURCE_DETECTOR = "SinoReconsVisual2/ShowSourceDetector"
 SETTINGS_KEY_SHOW_SINOGRAM_ON_SENSOR = "SinoReconsVisual2/ShowSinogramOnSensor"

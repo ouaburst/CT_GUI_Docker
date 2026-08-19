@@ -26,6 +26,7 @@ This repository is under active development — features, modules, and interface
     ├── sample_config.json          # Sample list configuration.
     └── 3Dslicer/CT-Wood/CT-Wood/SinoReconsVisual2 # Slicer plugin
 
+# The Server
 ## Functionality Summary — odl_stream_server.py
 
 -   Starts a **FastAPI server** for CT streaming and reconstruction.
@@ -150,6 +151,9 @@ Geometry / Sinogram:
 
 -   **POST /run_reconstruction** --- Run reconstruction
 
+# The client
+
+For more information about the client please refer to https://github.com/ouaburst/CT_GUI_Docker/tree/main/3Dslicer
 ## License
 
 MIT --- see \<LICENSE>.

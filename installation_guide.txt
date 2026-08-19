@@ -1,0 +1,218 @@
+CT Reconstruction & Streaming Server (MITO)
+Installation Guide
+============================================
+
+This guide installs the CUDA-enabled reconstruction server and, optionally,
+the SinoReconsVisual2 module for 3D Slicer.
+
+
+1. System requirements
+----------------------
+
+Server host:
+
+  - A 64-bit Linux computer with an NVIDIA CUDA-capable GPU
+  - A current NVIDIA driver compatible with CUDA 12.1
+  - Docker Engine
+  - NVIDIA Container Toolkit, configured for Docker
+  - Git
+  - Sufficient disk space for the Docker image and CT datasets
+
+The Dockerfile uses an NVIDIA CUDA 12.1.1 runtime image and installs Python,
+ASTRA Toolbox, the project's curved-detector ODL branch, PyTorch, FastAPI,
+VTK, PyVista, SciPy, and pynrrd. A separate host Python installation is not
+required.
+
+Confirm that Docker can access the GPU before continuing:
+
+  nvidia-smi
+  docker run --rm --gpus all nvidia/cuda:12.1.1-base-ubuntu20.04 nvidia-smi
+
+If the second command fails, install or repair NVIDIA Container Toolkit before
+building this project. See:
+
+  https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html
+
+Optional client:
+
+  - 3D Slicer (the module was developed with Slicer 5.6.2)
+  - Network access from the Slicer computer to TCP port 8000 on the server
+
+
+2. Download the project
+-----------------------
+
+  git clone https://github.com/ouaburst/CT_GUI_Docker.git
+  cd CT_GUI_Docker
+
+If the repository is already downloaded, run all remaining commands from its
+top-level directory (the directory containing Dockerfile).
+
+
+3. Build the server image
+-------------------------
+
+  docker build -t woodscan:cuda121 .
+
+The first build downloads the CUDA base image and all Python/Conda packages,
+so it can take a while and requires internet access.
+
+Verify that the image exists:
+
+  docker image inspect woodscan:cuda121
+
+
+4. Prepare the dataset
+----------------------
+
+Choose a host directory, for example /data/mito_samples. It must have this
+layout:
+
+  /data/mito_samples/
+  |-- samples.json
+  |-- pine_16_1/
+      |-- sinogram.npy
+      |-- angles.npy
+      |-- axial_positions.npy
+      |-- shifts.npy
+      `-- metadata.json
+
+Each entry in samples.json must contain a folder and a display name. Example:
+
+  [
+    {"folder": "pine_16_1", "name": "Pine 16, Disk 1"}
+  ]
+
+The folder value must exactly match a child directory of the mounted dataset
+directory. The server specifically expects the filename "samples.json" at
+/samples_directory/samples.json.
+
+To generate a synthetic example dataset instead of using MITO data, create an
+empty host directory and mount it read/write:
+
+  mkdir -p /data/ct_example
+  docker run --rm -it --gpus all \
+    -v /data/ct_example:/samples_directory \
+    woodscan:cuda121 \
+    python generate_sinogram.py /samples_directory
+
+The generator is GPU- and memory-intensive. It creates samples.json and a
+phantom_1 sample directory.
+
+
+5. Start the API server
+-----------------------
+
+Replace /data/mito_samples with the absolute path to your dataset directory:
+
+  docker run --rm -it \
+    --name woodscan-server \
+    --gpus all \
+    -p 8000:8000 \
+    -v /data/mito_samples:/samples_directory:ro \
+    woodscan:cuda121 \
+    python -m uvicorn odl_stream_server:app --host 0.0.0.0 --port 8000
+
+For the generated example data, use /data/ct_example as the host path.
+
+At startup, the server loads the first entry from samples.json and computes
+geometry and sinogram cache data. This may take some time. Leave the terminal
+open and wait until Uvicorn reports that application startup is complete.
+
+To run in the background, replace "-it" with "-d" (keep "--rm") and inspect
+logs with:
+
+  docker logs -f woodscan-server
+
+Stop a background server with:
+
+  docker stop woodscan-server
+
+
+6. Verify the server
+--------------------
+
+On the server host, run:
+
+  curl http://localhost:8000/
+  curl http://localhost:8000/samples.json
+  curl http://localhost:8000/reconstruction_methods.json
+
+Open the interactive API documentation in a browser:
+
+  http://localhost:8000/docs
+
+If the server is remote, replace localhost with its hostname or IP address.
+Port 8000 must be permitted by the host firewall. Alternatively, create an SSH
+tunnel from the client computer:
+
+  ssh -L 8000:localhost:8000 USER@SERVER
+
+With the tunnel active, use http://localhost:8000 on the client.
+
+
+7. Install the optional 3D Slicer module
+----------------------------------------
+
+1. Install and start 3D Slicer.
+2. Open Edit > Application Settings > Modules.
+3. Under Additional module paths, add the absolute path to:
+
+     CT_GUI_Docker/3Dslicer/CT-Wood/CTWood/SinoReconsVisual2
+
+4. Accept the settings change and restart 3D Slicer.
+5. Select Utilities > SinoReconsVisual2 from the Modules menu.
+6. In the module's server URL field, enter one of the following and click the
+   connection button:
+
+     http://localhost:8000       (local server or SSH tunnel)
+     http://SERVER_IP:8000       (direct remote connection)
+
+On first load, the module may install the pynrrd and pathvalidate Python
+packages into Slicer's Python environment. Internet access may therefore be
+needed. Restart Slicer if it requests a restart after package installation.
+
+
+8. Common problems
+------------------
+
+"could not select device driver" or "unknown runtime nvidia"
+  Docker cannot use the NVIDIA runtime. Install/configure NVIDIA Container
+  Toolkit, restart Docker, and repeat the GPU test in section 1.
+
+"Sample list file not found: /samples_directory/samples.json"
+  Check the bind-mount source and ensure the file is named samples.json. The
+  source must be the directory containing that file, not a sample subfolder.
+
+Server exits while loading a sample
+  Confirm that every sample listed in samples.json contains sinogram.npy,
+  angles.npy, axial_positions.npy, shifts.npy, and metadata.json. Also inspect:
+
+    docker logs woodscan-server
+
+Connection refused from 3D Slicer
+  Confirm the container is running, port 8000 is published, and the URL uses
+  the server address rather than localhost unless Slicer is on the server or an
+  SSH tunnel is active.
+
+CUDA out-of-memory
+  Stop other GPU workloads, select a GPU with enough free memory, or expose a
+  specific GPU by adding this option to docker run:
+
+    --gpus '"device=0"'
+
+Permission denied while generating example data
+  The generator needs a read/write mount. Do not append :ro to its volume
+  option. The normal API server can and should use the read-only :ro mount.
+
+
+9. Updating the installation
+----------------------------
+
+From the repository directory:
+
+  git pull
+  docker build -t woodscan:cuda121 .
+
+Stop the old container and start a new one with the command in section 5. Data
+stored in the host dataset directory is unaffected by replacing the container.
